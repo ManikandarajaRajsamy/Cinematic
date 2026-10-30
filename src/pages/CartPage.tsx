@@ -1,15 +1,23 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Minus, Trash2, ShoppingBag, ArrowRight, Tag, X, Repeat } from "lucide-react";
-import { useStore, computeTotals, productById } from "@/store/store";
+import { useStore, computeTotals, productById, lineSubtotal } from "@/store/store";
 import { COUPONS } from "@/data/catalog";
+import { useDeliveryQuote } from "@/hooks/useDeliveryQuote";
+import { useDeliverySettings } from "@/api/client";
+import { DeliveryRules } from "@/components/DeliveryRules";
 
 export function CartPage() {
-  const { state, updateQty, removeFromCart, clearCart, setCoupon, toast } = useStore();
+  const { state, updateQty, removeFromCart, clearCart, setCoupon, toast, planDiscountPercent, planPctFor } = useStore();
   const navigate = useNavigate();
   const [couponInput, setCouponInput] = useState(state.activeCoupon || "");
   const [confirmClear, setConfirmClear] = useState(false);
-  const totals = computeTotals(state.cart, state.activeCoupon);
+  // quote against the customer's first saved address; checkout lets them pick another
+  const address = state.addresses[0];
+  const base = computeTotals(state.cart, state.activeCoupon, 0, planPctFor);
+  const { quote } = useDeliveryQuote(address, base.subtotal, base.hasSubscription);
+  const { data: settings } = useDeliverySettings();
+  const totals = computeTotals(state.cart, state.activeCoupon, quote?.deliverable ? quote.fee / 100 : 0, planPctFor);
 
   if (state.cart.length === 0) {
     return (
@@ -18,7 +26,7 @@ export function CartPage() {
           <div className="empty-hero">
             <ShoppingBag size={56} />
             <h1 className="display-3 mt-6">Your cart is empty</h1>
-            <p className="lead mt-4" style={{ marginInline: "auto" }}>Browse the menu and add your favourite sweets — they'll show up here.</p>
+            <p className="lead mt-4" style={{ marginInline: "auto" }}>Browse the menu and add a parcel — it will show up here.</p>
             <Link to="/products" className="btn btn-primary btn-lg mt-8">Explore the menu <ArrowRight size={18} /></Link>
           </div>
         </div>
@@ -45,9 +53,10 @@ export function CartPage() {
         <div className="cart-layout">
           <div className="cart-items">
             {state.cart.map((line) => {
-              const p = productById(line.productId)!;
-              const v = p.variants.find((x) => x.id === line.variantId)!;
-              const subtotal = v.price * line.qty;
+              const p = productById(line.productId);
+              const v = p?.variants.find((x) => x.id === line.variantId);
+              if (!p || !v) return null; // catalogue still loading
+              const subtotal = lineSubtotal(line);
               return (
                 <div className="cart-line" key={`${line.productId}-${line.variantId}-${line.subscription}`}>
                   <Link to={`/product/${p.id}`} className="cart-line-img">
@@ -56,7 +65,7 @@ export function CartPage() {
                   <div className="cart-line-body">
                     <div className="cart-line-head">
                       <Link to={`/product/${p.id}`}><h3 className="title-md">{p.name}</h3></Link>
-                      {line.subscription && <span className="badge badge-gold"><Repeat size={10} /> Subscription</span>}
+                      {line.subscription && <span className="badge badge-gold"><Repeat size={10} /> {line.planDays}-day plan · {line.qty}/day</span>}
                     </div>
                     <span className="cart-line-variant">{v.label} · ₹{v.price}</span>
                     <div className="cart-line-controls">
@@ -99,19 +108,32 @@ export function CartPage() {
             <div className="summary-rows">
               <div className="summary-row"><span>Subtotal</span><span>₹{totals.subtotal}</span></div>
               {totals.couponDiscount > 0 && <div className="summary-row discount"><span>Coupon discount</span><span>– ₹{totals.couponDiscount}</span></div>}
-              {totals.subscriptionDiscount > 0 && <div className="summary-row discount"><span>Subscription discount (15%)</span><span>– ₹{totals.subscriptionDiscount}</span></div>}
-              <div className="summary-row"><span>Delivery fee</span><span>₹{totals.deliveryFee}</span></div>
+              {totals.subscriptionDiscount > 0 && <div className="summary-row discount"><span>Plan discount</span><span>– ₹{totals.subscriptionDiscount}</span></div>}
+              <div className="summary-row">
+                <span>Delivery</span>
+                <span>{quote?.saving ? <><s className="price-strike">₹{quote.baseFee! / 100}</s> </> : null}{!address || !quote ? "At checkout" : !quote.deliverable ? "—" : totals.deliveryFee === 0 ? "Free" : `₹${totals.deliveryFee}`}</span>
+              </div>
+              {!!quote?.saving && settings?.discount_above_amount != null && (
+                <div className="summary-row discount"><span>{settings.discount_percent}% off delivery (order above ₹{settings.discount_above_amount / 100})</span><span>– ₹{quote.saving / 100}</span></div>
+              )}
+              <p className="cart-delivery-note">
+                {address && quote ? `${address.label}: ${quote.message}` : settings ? `Free delivery within ${settings.free_radius_km} km. Add your address at checkout to see the fee.` : ""}
+              </p>
               <div className="divider" style={{ margin: "12px 0" }} />
               <div className="summary-row total"><span>Total</span><span className="price" style={{ fontSize: "1.6rem" }}>₹{totals.total}</span></div>
             </div>
             {totals.hasSubscription && (
               <div className="sub-note">
-                <span className="badge badge-success"><span className="dot" /> 15% subscription discount applied to eligible items</span>
+                <span className="badge badge-success"><span className="dot" /> {planDiscountPercent}% plan discount applied to eligible items</span>
               </div>
             )}
             <button className="btn btn-primary btn-block btn-lg mt-6" onClick={() => navigate("/checkout")}>
               Proceed to checkout <ArrowRight size={18} />
             </button>
+            <details className="cart-rules">
+              <summary>Delivery charges</summary>
+              <DeliveryRules compact />
+            </details>
           </aside>
         </div>
       </div>
@@ -130,6 +152,10 @@ export function CartPage() {
       )}
 
       <style>{`
+        .cart-rules { margin-top: var(--sp-5); border-top: 1px solid var(--border); padding-top: var(--sp-4); }
+        .cart-rules summary { cursor: pointer; font-weight: 600; font-size: var(--font-sm); color: var(--accent-gold-bright); }
+        .cart-rules[open] summary { margin-bottom: 12px; }
+        .cart-delivery-note { font-size: var(--font-xs); color: var(--text-dim); margin: -4px 0 8px; text-align: right; }
         .cart-layout { display: grid; grid-template-columns: 1fr 380px; gap: var(--sp-8); align-items: start; }
         .cart-items { display: flex; flex-direction: column; gap: var(--sp-4); }
         .cart-line { display: grid; grid-template-columns: 100px 1fr; gap: var(--sp-4); padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-card); }

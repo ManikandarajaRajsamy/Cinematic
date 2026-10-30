@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Shield, Truck, Ban, RefreshCw, Lock, FileText } from "lucide-react";
 import { POLICIES } from "@/data/catalog";
+import { fillDeliveryText, useDeliverySettings } from "@/api/client";
+import { DeliveryRules } from "@/components/DeliveryRules";
 
 const ICONS: Record<string, typeof Shield> = {
   delivery: Truck,
@@ -11,7 +14,12 @@ const ICONS: Record<string, typeof Shield> = {
 };
 
 export function PoliciesPage() {
-  const [active, setActive] = useState(POLICIES[0].id);
+  const { hash } = useLocation();
+  const { data: settings } = useDeliverySettings();
+  const fromHash = () => POLICIES.find((p) => "#" + p.id === hash)?.id;
+  const [active, setActive] = useState(() => fromHash() ?? POLICIES[0].id);
+  // footer links such as /policies#refund open the matching policy
+  useEffect(() => { const id = fromHash(); if (id) setActive(id); }, [hash]); // eslint-disable-line react-hooks/exhaustive-deps
   const current = POLICIES.find((p) => p.id === active)!;
 
   return (
@@ -37,8 +45,9 @@ export function PoliciesPage() {
           <div className="policy-content card">
             <h2 className="title-lg mb-6">{current.title}</h2>
             {current.body.map((para, i) => (
-              <p key={i} className="policy-para">{para}</p>
+              <p key={i} className="policy-para">{fillDeliveryText(para, settings)}</p>
             ))}
+            {current.id === "delivery" && <div className="mt-6"><DeliveryRules /></div>}
             <div className="policy-review-note">
               This is placeholder policy text for review. It should not be treated as final legal content.
             </div>

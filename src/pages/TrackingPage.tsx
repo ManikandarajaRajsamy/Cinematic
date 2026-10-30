@@ -8,7 +8,7 @@ import { useStore, DemoOrder, OrderStatus } from "@/store/store";
 const STATUSES: { id: OrderStatus; label: string; icon: typeof Package; desc: string }[] = [
   { id: "placed", label: "Order placed", icon: Package, desc: "We've received your demo order." },
   { id: "confirmed", label: "Order confirmed", icon: CheckCircle2, desc: "The kitchen has confirmed your order." },
-  { id: "preparing", label: "Preparing", icon: CookingPot, desc: "Your sweets are being made fresh." },
+  { id: "preparing", label: "Preparing", icon: CookingPot, desc: "Your paruthipaal is being made fresh." },
   { id: "out_for_delivery", label: "Out for delivery", icon: Truck, desc: "On the way to your address." },
   { id: "delivered", label: "Delivered", icon: Home, desc: "Delivered. Enjoy!" },
 ];

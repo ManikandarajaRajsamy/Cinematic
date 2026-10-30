@@ -1,20 +1,22 @@
 import { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Plus, Minus, Check, ShoppingBag, Repeat } from "lucide-react";
-import { PRODUCTS, productById } from "@/data/catalog";
-import { useStore } from "@/store/store";
+import { useStore, productById } from "@/store/store";
 import { ProductCard } from "@/components/ProductCard";
 
 export function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const product = productById(id || "");
   const navigate = useNavigate();
-  const { addToCart, toast } = useStore();
+  const { products, productsLoading, addToCart, toast } = useStore();
   const [variantId, setVariantId] = useState(product?.variants[0].id ?? "");
   const [qty, setQty] = useState(1);
   const [subscribe, setSubscribe] = useState(false);
   const [activeImg, setActiveImg] = useState(0);
 
+  if (!product && productsLoading) {
+    return <section className="section" style={{ paddingTop: "var(--sp-32)", minHeight: "70vh" }} aria-busy="true" />;
+  }
   if (!product) {
     return (
       <section className="section" style={{ paddingTop: "var(--sp-32)" }}>
@@ -28,7 +30,7 @@ export function ProductDetailPage() {
 
   const variant = product.variants.find((v) => v.id === variantId) ?? product.variants[0];
   const gallery = product.gallery.length > 1 ? product.gallery : [product.image, ...product.gallery];
-  const related = PRODUCTS.filter((p) => p.id !== product.id && p.category === product.category).slice(0, 4);
+  const related = products.filter((p) => p.id !== product.id && p.category === product.category).slice(0, 4);
   const subPrice = Math.round(variant.price * 0.85);
 
   const handleAdd = () => {

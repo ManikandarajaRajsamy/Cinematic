@@ -1,21 +1,43 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import {
   User, MapPin, Package, Repeat, LogOut, Pencil, Plus, Trash2, Truck, ArrowRight, Settings,
 } from "lucide-react";
-import { useStore, Address, DemoOrder } from "@/store/store";
+import { useStore, type Address, type DemoOrder } from "@/store/store";
 import { Modal } from "@/components/Modal";
-import { productById } from "@/data/catalog";
+import { AddressFields, emptyAddress, toAddressInput, validateAddress, type AddressInput } from "@/components/AddressFields";
+import { auth } from "@/api/auth";
+import { MyPlans } from "@/components/MyPlans";
+import { ApiError } from "@/api/client";
 
 type Tab = "profile" | "addresses" | "orders" | "subscriptions" | "preferences";
 
 export function AccountPage() {
-  const { state, logout, updateAddress: updateAddr, addAddress, removeAddress, toast, login } = useStore();
-  const [tab, setTab] = useState<Tab>("profile");
+  const { state, signOut, signedIn, updateAddress: updateAddr, addAddress, removeAddress, toast } = useStore();
+  const { hash, state: navState } = useLocation() as { hash: string; state: { orderId?: string; claimToken?: string } | null };
+  // offered once, right after a guest order that created a new account
+  const [claim, setClaim] = useState({ token: navState?.claimToken ?? "", password: "", error: "", busy: false });
+  const saveClaim = async () => {
+    if (claim.password.length < 6) { setClaim((c) => ({ ...c, error: "Use at least 6 characters." })); return; }
+    setClaim((c) => ({ ...c, busy: true, error: "" }));
+    try {
+      const customer = await auth.claim(claim.token, claim.password);
+      signedIn(customer);
+      setClaim({ token: "", password: "", error: "", busy: false });
+      toast("Password saved. You're signed in.", "success");
+    } catch (x) {
+      setClaim((c) => ({ ...c, busy: false, error: x instanceof ApiError ? (x.fields?.password ?? x.message) : "Couldn't save the password." }));
+    }
+  };
+  const TAB_IDS: Tab[] = ["profile", "addresses", "orders", "subscriptions", "preferences"];
+  const fromHash = TAB_IDS.find((t) => "#" + t === hash);
+  const [tab, setTab] = useState<Tab>(fromHash ?? "profile");
+  // footer links like /account#addresses switch the tab even when this page is already open
+  useEffect(() => { if (fromHash) setTab(fromHash); }, [fromHash]);
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: state.user.name, email: state.user.email, phone: state.user.phone });
   const [addrModal, setAddrModal] = useState<{ open: boolean; edit?: Address }>({ open: false });
-  const [addrForm, setAddrForm] = useState<Omit<Address, "id">>({ label: "", name: "", phone: "", line1: "", line2: "", area: "", pincode: "" });
+  const [addrForm, setAddrForm] = useState<AddressInput>(emptyAddress());
   const [addrErrors, setAddrErrors] = useState<Record<string, string>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [orderModal, setOrderModal] = useState<DemoOrder | null>(null);
@@ -28,33 +50,33 @@ export function AccountPage() {
     { id: "preferences", label: "Preferences", icon: Settings },
   ];
 
-  if (!state.user.loggedIn) {
+  // guests land here after placing an order, so they can still see their order history
+  const guestOrders = !state.user.loggedIn && tab === "orders" && state.orders.length > 0;
+  if (!state.user.loggedIn && !guestOrders) {
     return (
       <section className="section" style={{ paddingTop: "var(--sp-32)" }}>
         <div className="container-narrow text-center">
           <User size={56} style={{ opacity: 0.3 }} />
           <h1 className="display-3 mt-6">Sign in to view your account</h1>
-          <p className="lead mt-4" style={{ marginInline: "auto" }}>This is a demo account area. Sign in with any email to explore it.</p>
+          <p className="lead mt-4" style={{ marginInline: "auto" }}>Sign in with your mobile number and password to see your orders and saved addresses.</p>
           <Link to="/login" className="btn btn-primary btn-lg mt-8">Sign in <ArrowRight size={18} /></Link>
         </div>
       </section>
     );
   }
 
-  const saveProfile = () => {
-    login(profileForm.email, profileForm.name);
-    toast("Profile updated", "success");
-    setEditing(false);
+  const saveProfile = async () => {
+    try {
+      signedIn(await auth.updateProfile({ name: profileForm.name, email: profileForm.email }));
+      toast("Profile updated", "success");
+      setEditing(false);
+    } catch (x) {
+      toast(x instanceof ApiError ? Object.values(x.fields ?? {})[0] ?? x.message : "Couldn't save your profile", "error");
+    }
   };
 
   const saveAddress = () => {
-    const e: Record<string, string> = {};
-    if (!addrForm.label.trim()) e.label = "Required";
-    if (!addrForm.name.trim()) e.name = "Required";
-    if (!addrForm.phone.trim()) e.phone = "Required";
-    if (!addrForm.line1.trim()) e.line1 = "Required";
-    if (!addrForm.area.trim()) e.area = "Required";
-    if (!addrForm.pincode.trim()) e.pincode = "Required";
+    const e = validateAddress(addrForm);
     setAddrErrors(e);
     if (Object.keys(e).length) return;
     if (addrModal.edit) { updateAddr(addrModal.edit.id, addrForm); toast("Address updated", "success"); }
@@ -62,8 +84,8 @@ export function AccountPage() {
     setAddrModal({ open: false });
   };
 
-  const openAddAddr = () => { setAddrForm({ label: "", name: state.user.name, phone: state.user.phone, line1: "", line2: "", area: "", pincode: "" }); setAddrErrors({}); setAddrModal({ open: true }); };
-  const openEditAddr = (a: Address) => { setAddrForm({ label: a.label, name: a.name, phone: a.phone, line1: a.line1, line2: a.line2, area: a.area, pincode: a.pincode }); setAddrErrors({}); setAddrModal({ open: true, edit: a }); };
+  const openAddAddr = () => { setAddrForm(emptyAddress(state.user.name, state.user.phone)); setAddrErrors({}); setAddrModal({ open: true }); };
+  const openEditAddr = (a: Address) => { setAddrForm(toAddressInput(a)); setAddrErrors({}); setAddrModal({ open: true, edit: a }); };
 
   return (
     <section className="section" style={{ paddingTop: "var(--sp-32)" }}>
@@ -83,7 +105,7 @@ export function AccountPage() {
                   <t.icon size={18} /> {t.label}
                 </button>
               ))}
-              <button className="acc-nav-item danger" onClick={logout}><LogOut size={18} /> Sign out</button>
+              <button className="acc-nav-item danger" onClick={() => { signOut(); toast("Signed out"); }}><LogOut size={18} /> Sign out</button>
             </nav>
           </aside>
 
@@ -99,14 +121,14 @@ export function AccountPage() {
                     <>
                       <div className="field"><label className="label">Name</label><input className="input" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} /></div>
                       <div className="field"><label className="label">Email</label><input className="input" value={profileForm.email} onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })} /></div>
-                      <div className="field"><label className="label">Phone</label><input className="input" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} /></div>
+                      <div className="field"><label className="label">Mobile number</label><input className="input" value={`+91 ${state.user.phone}`} readOnly aria-describedby="acc-mobile-note" /><span id="acc-mobile-note" style={{ fontSize: "var(--font-xs)", color: "var(--text-dim)" }}>Your mobile number is your account ID and can't be changed here.</span></div>
                       <button className="btn btn-primary" onClick={saveProfile}>Save changes</button>
                     </>
                   ) : (
                     <>
                       <div className="acc-profile-row"><span className="label">Name</span><strong>{state.user.name || "—"}</strong></div>
                       <div className="acc-profile-row"><span className="label">Email</span><strong>{state.user.email || "—"}</strong></div>
-                      <div className="acc-profile-row"><span className="label">Phone</span><strong>{state.user.phone || "—"}</strong></div>
+                      <div className="acc-profile-row"><span className="label">Mobile</span><strong>{state.user.phone ? `+91 ${state.user.phone}` : "—"}</strong></div>
                     </>
                   )}
                 </div>
@@ -146,6 +168,21 @@ export function AccountPage() {
             {tab === "orders" && (
               <div className="acc-pane">
                 <h1 className="title-xl mb-8">Order history</h1>
+                {claim.token && !state.user.loggedIn && (
+                  <div className="acc-claim card">
+                    <div>
+                      <strong>Save your details for next time: set a password</strong>
+                      <p>Your name, mobile number and address are saved with this order. Add a password to sign in next time. Skipping is fine.</p>
+                    </div>
+                    <div className="acc-claim-row">
+                      <input className="input" type="password" autoComplete="new-password" placeholder="Password (min 6 characters)" aria-label="Password"
+                        value={claim.password} onChange={(e) => setClaim({ ...claim, password: e.target.value, error: "" })} />
+                      <button className="btn btn-primary" onClick={saveClaim} disabled={claim.busy}>{claim.busy ? "Saving…" : "Save"}</button>
+                      <button className="btn btn-ghost" onClick={() => setClaim({ token: "", password: "", error: "", busy: false })}>Skip</button>
+                    </div>
+                    {claim.error && <span className="field-error">{claim.error}</span>}
+                  </div>
+                )}
                 {state.orders.length === 0 ? (
                   <div className="empty-mini"><Package size={32} /><p>No demo orders yet.</p><Link to="/products" className="btn btn-primary btn-sm">Browse menu</Link></div>
                 ) : (
@@ -180,25 +217,8 @@ export function AccountPage() {
             {tab === "subscriptions" && (
               <div className="acc-pane">
                 <h1 className="title-xl mb-8">Subscriptions</h1>
-                {state.subscriptions.length === 0 ? (
-                  <div className="empty-mini"><Repeat size={32} /><p>No active subscriptions.</p><Link to="/subscriptions" className="btn btn-primary btn-sm">Explore plans</Link></div>
-                ) : (
-                  <div className="acc-subs">
-                    {state.subscriptions.map((s) => {
-                      const p = productById(s.productId);
-                      return (
-                        <div className="acc-sub card" key={s.id}>
-                          <div className="flex justify-between items-center mb-3">
-                            <strong>{p?.name ?? "Product"}</strong>
-                            <span className={`badge ${s.status === "active" ? "badge-success" : s.status === "paused" ? "badge-gold" : "badge-error"}`}>{s.status}</span>
-                          </div>
-                          <span className="acc-addr-text">{s.frequency} · {p?.variants.find((v) => v.id === s.variantId)?.label} × {s.qty}</span>
-                          <Link to="/subscriptions" className="btn btn-text btn-sm mt-3">Manage <ArrowRight size={12} /></Link>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                <MyPlans title="" emptyText="No daily plans yet." />
+                <Link to="/subscriptions" className="btn btn-ghost btn-sm mt-6">Explore plans <ArrowRight size={12} /></Link>
               </div>
             )}
 
@@ -220,17 +240,7 @@ export function AccountPage() {
       {/* Address modal */}
       <Modal open={addrModal.open} onClose={() => setAddrModal({ open: false })} title={addrModal.edit ? "Edit address" : "Add address"} maxWidth={500}>
         <div className="addr-form">
-          <div className="field-row">
-            <div className="field"><label className="label">Label</label><input className="input" value={addrForm.label} onChange={(e) => setAddrForm({ ...addrForm, label: e.target.value })} />{addrErrors.label && <span className="field-error">{addrErrors.label}</span>}</div>
-            <div className="field"><label className="label">Pincode</label><input className="input" value={addrForm.pincode} onChange={(e) => setAddrForm({ ...addrForm, pincode: e.target.value })} />{addrErrors.pincode && <span className="field-error">{addrErrors.pincode}</span>}</div>
-          </div>
-          <div className="field-row">
-            <div className="field"><label className="label">Name</label><input className="input" value={addrForm.name} onChange={(e) => setAddrForm({ ...addrForm, name: e.target.value })} />{addrErrors.name && <span className="field-error">{addrErrors.name}</span>}</div>
-            <div className="field"><label className="label">Phone</label><input className="input" value={addrForm.phone} onChange={(e) => setAddrForm({ ...addrForm, phone: e.target.value })} />{addrErrors.phone && <span className="field-error">{addrErrors.phone}</span>}</div>
-          </div>
-          <div className="field"><label className="label">Address line 1</label><input className="input" value={addrForm.line1} onChange={(e) => setAddrForm({ ...addrForm, line1: e.target.value })} />{addrErrors.line1 && <span className="field-error">{addrErrors.line1}</span>}</div>
-          <div className="field"><label className="label">Address line 2 (optional)</label><input className="input" value={addrForm.line2} onChange={(e) => setAddrForm({ ...addrForm, line2: e.target.value })} /></div>
-          <div className="field"><label className="label">Area</label><input className="input" value={addrForm.area} onChange={(e) => setAddrForm({ ...addrForm, area: e.target.value })} placeholder="Tallakulam, Madurai" />{addrErrors.area && <span className="field-error">{addrErrors.area}</span>}</div>
+          <AddressFields form={addrForm} setForm={setAddrForm} errors={addrErrors} />
           <button className="btn btn-primary btn-block mt-4" onClick={saveAddress}>{addrModal.edit ? "Update" : "Save address"}</button>
         </div>
       </Modal>
@@ -267,6 +277,10 @@ export function AccountPage() {
       </Modal>
 
       <style>{`
+        .acc-claim { padding: var(--sp-5); margin-bottom: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3); border-color: var(--border-bright); background: linear-gradient(150deg, rgba(255, 122, 24, 0.1), rgba(0, 26, 22, 0.5)); }
+        .acc-claim p { font-size: var(--font-sm); margin-top: 4px; }
+        .acc-claim-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .acc-claim-row .input { flex: 1 1 220px; }
         .acc-layout { display: grid; grid-template-columns: 260px 1fr; gap: var(--sp-8); align-items: start; }
         .acc-sidebar { position: sticky; top: calc(var(--nav-h) + 16px); }
         .acc-user { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-card); margin-bottom: var(--sp-4); }
@@ -274,6 +288,14 @@ export function AccountPage() {
         .acc-user div { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
         .acc-user span { font-size: var(--font-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .acc-nav { display: flex; flex-direction: column; gap: 2px; }
+        /* phones and tablets: the account menu is one scrollable row of tabs */
+        @media (max-width: 860px) {
+          .acc-nav { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 6px; padding-bottom: 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+          .acc-nav::-webkit-scrollbar { display: none; }
+          .acc-nav-item { flex: 0 0 auto; white-space: nowrap; padding: 10px 14px; border: 1px solid var(--border); border-radius: 999px; }
+          .acc-nav-item.active { border-color: var(--border-bright); }
+          .acc-nav-item.danger { margin-left: auto; }
+        }
         .acc-nav-item { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--radius-sm); color: var(--text-muted); font-size: var(--font-sm); font-weight: 500; transition: all var(--t-fast); text-align: left; }
         .acc-nav-item:hover { background: var(--bg-glass-light); color: var(--text); }
         .acc-nav-item.active { background: var(--accent-gold-glow); color: var(--accent-gold-bright); }
@@ -299,7 +321,7 @@ export function AccountPage() {
         .summary-row { display: flex; justify-content: space-between; font-size: var(--font-sm); color: var(--text-muted); }
         .summary-row.total { color: var(--text); font-weight: 600; }
         .track-item { display: flex; justify-content: space-between; font-size: var(--font-sm); color: var(--text-muted); }
-        @media (max-width: 800px) { .acc-layout { grid-template-columns: 1fr; } .acc-sidebar { position: static; } .acc-nav { flex-direction: row; flex-wrap: wrap; } .acc-nav-item { flex: 1; min-width: 100px; justify-content: center; } }
+        @media (max-width: 800px) { .acc-layout { grid-template-columns: 1fr; } .acc-sidebar { position: static; } }
       `}</style>
     </section>
   );

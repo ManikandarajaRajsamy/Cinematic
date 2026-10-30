@@ -4,7 +4,7 @@ import { Plus, Eye } from "lucide-react";
 import { Product } from "@/data/catalog";
 import { useStore } from "@/store/store";
 
-export function ProductCard({ product, index = 0 }: { product: Product; index?: number }) {
+export function ProductCard({ product, index = 0, showPrice = true }: { product: Product; index?: number; showPrice?: boolean }) {
   const { addToCart, toast } = useStore();
   const navigate = useNavigate();
   const [variantId, setVariantId] = useState(product.variants[0].id);
@@ -52,7 +52,7 @@ export function ProductCard({ product, index = 0 }: { product: Product; index?: 
           ))}
         </div>
         <div className="pcard-foot">
-          <span className="pcard-price">₹{variant.price}</span>
+          {showPrice ? <span className="pcard-price">₹{variant.price}</span> : <span />}
           <button className="btn btn-primary btn-sm" onClick={add} disabled={!variant.inStock}>
             <Plus size={14} /> Add
           </button>

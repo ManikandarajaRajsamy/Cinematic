@@ -4,17 +4,31 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Sri Sastha Paruthipaal — Heritage Madurai milk sweets, crafted with patience. Order online, subscribe, and taste tradition." />
+    <meta name="description" content="Sri Sastha Paruthipaal, Madurai since 1999. Hot paruthipaal cooked fresh in a copper pot near Periyar Bus Stand. 500 ML and 1 L parcels delivered hot in Madurai district." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600&family=Hind+Madurai:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" />
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600&family=Hind+Madurai:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600&family=Hind+Madurai:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" /></noscript>
+    <link rel="preload" as="image" href="/media/pour-poster.jpg" fetchpriority="high" />
     <title>Sri Sastha Paruthipaal — Heritage Milk Sweets of Madurai</title>
     <meta property="og:image" content="https://bolt.new/static/og_default.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://bolt.new/static/og_default.png">
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Static first paint for the homepage: the hero's background and round pour poster, at the same
+         size and place the React hero uses. React replaces it when it mounts. -->
+    <script>if (location.pathname === "/") document.documentElement.classList.add("boot-home");</script>
+    <style>
+      .boot { display: none; }
+      .boot-home body { background: #001A16; }
+      .boot-home .boot { display: block; position: fixed; inset: 0; background: radial-gradient(70vmin 70vmin at 50% 50%, rgba(0,91,79,.4), transparent 70%), linear-gradient(180deg, #001A16, #003B32); }
+      .boot-glass { --d: min(52vmin, 540px); position: absolute; left: 50%; top: 50%; width: var(--d); height: var(--d); margin: calc(var(--d) / -2) 0 0 calc(var(--d) / -2); border-radius: 50%; overflow: hidden; }
+      .boot-glass img { width: 100%; height: 100%; object-fit: cover; object-position: 74% 58%; }
+      @media (max-width: 760px) { .boot-glass { --d: 70vw; top: 32%; } }
+    </style>
+    <div id="root"><div class="boot" aria-hidden="true"><div class="boot-glass"><img src="/media/pour-poster.jpg" alt="" fetchpriority="high" /></div></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

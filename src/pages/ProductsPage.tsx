@@ -3,12 +3,14 @@ import { useSearchParams } from "react-router-dom";
 import { Search, SlidersHorizontal, X, PackageOpen } from "lucide-react";
 import { ProductCard } from "@/components/ProductCard";
 import { useReveal } from "@/hooks/useReveal";
-import { PRODUCTS, CATEGORIES } from "@/data/catalog";
+import { CATEGORIES } from "@/data/catalog";
+import { useStore } from "@/store/store";
 
 type SortKey = "featured" | "price-asc" | "price-desc" | "name";
 
 export function ProductsPage() {
   const [params, setParams] = useSearchParams();
+  const { products, productsLoading, productsError } = useStore();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState(params.get("category") || "all");
   const [sort, setSort] = useState<SortKey>("featured");
@@ -21,7 +23,7 @@ export function ProductsPage() {
   }, [params]);
 
   const filtered = useMemo(() => {
-    let list = PRODUCTS.filter((p) =>
+    let list = products.filter((p) =>
       (category === "all" || p.category === category) &&
       (!query || p.name.toLowerCase().includes(query.toLowerCase())) &&
       (!inStockOnly || p.variants.some((v) => v.inStock))
@@ -30,7 +32,7 @@ export function ProductsPage() {
     if (sort === "price-desc") list = [...list].sort((a, b) => b.variants[0].price - a.variants[0].price);
     if (sort === "name") list = [...list].sort((a, b) => a.name.localeCompare(b.name));
     return list;
-  }, [category, query, sort, inStockOnly]);
+  }, [products, category, query, sort, inStockOnly]);
 
   const clearAll = () => { setQuery(""); setCategory("all"); setSort("featured"); setInStockOnly(false); setParams({}); };
   const hasFilters = query || category !== "all" || sort !== "featured" || inStockOnly;
@@ -40,8 +42,8 @@ export function ProductsPage() {
       <div className="container">
         <div className="sec-head">
           <span className="eyebrow">The Menu</span>
-          <h1 className="display-2">All sweets &amp; snacks</h1>
-          <p className="lead">Filter by category, search by name, and sort to find what you're after.</p>
+          <h1 className="display-2">Paruthipaal parcels</h1>
+          <p className="lead">Hot paruthipaal, sealed and delivered in Madurai. Pick a size and add it to your cart.</p>
         </div>
 
         <div className="catalog-toolbar">
@@ -79,7 +81,11 @@ export function ProductsPage() {
           <span>{filtered.length} product{filtered.length !== 1 ? "s" : ""}</span>
         </div>
 
-        {filtered.length === 0 ? (
+        {productsLoading ? (
+          <div className="empty-state" aria-busy="true"><PackageOpen size={48} /><h3>Loading the menu…</h3></div>
+        ) : productsError ? (
+          <div className="empty-state"><PackageOpen size={48} /><h3>We couldn't load the menu</h3><p>Please refresh the page in a moment.</p></div>
+        ) : filtered.length === 0 ? (
           <div className="empty-state">
             <PackageOpen size={48} />
             <h3>No products found</h3>
