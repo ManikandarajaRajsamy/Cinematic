@@ -261,8 +261,9 @@ export async function quote(req: QuoteRequest): Promise<DeliveryQuote> {
   let fee = baseFee;
   let freeReason: DeliveryQuote["freeReason"];
   const subtotal = req.subtotal ?? 0;
-  if (km <= s.free_radius_km) { fee = 0; freeReason = "WITHIN_FREE_RADIUS"; }
-  else if (req.hasPlan && s.plan_free_delivery) { fee = 0; freeReason = "PLAN"; }
+  // plan orders are always delivered free
+  if (req.hasPlan) { fee = 0; freeReason = "PLAN"; }
+  else if (km <= s.free_radius_km) { fee = 0; freeReason = "WITHIN_FREE_RADIUS"; }
   else if (s.free_above_amount != null && subtotal >= s.free_above_amount) { fee = 0; freeReason = "ABOVE_AMOUNT"; }
   else if (s.discount_above_amount != null && subtotal > s.discount_above_amount) fee = discounted(baseFee, s.discount_percent);
   const saving = baseFee - fee;
@@ -415,6 +416,7 @@ export function handle(method: string, path: string, body: unknown, token?: stri
       const signedIn = sessionCustomer(d, customerToken);
       const mobile = signedIn?.mobile ?? normaliseMobile(req.customer?.phone);
       if (!isValidMobile(mobile)) throw new ApiError(422, "Enter a valid 10-digit mobile number.", { phone: "Enter a valid 10-digit mobile number." });
+      if (req.payment === "cod" && req.lines?.some((l) => l.plan)) throw new ApiError(422, "Daily plans are paid online by UPI. Cash on delivery isn't available for plans.");
       return priceOrder(req).then((pricing) => {
         d.sales[pricing.delivery.branch_id] = (d.sales[pricing.delivery.branch_id] ?? 0) + 1;
         const a = readAddress(req.addressId);
@@ -701,7 +703,9 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
       const refs = new Set((b.orderRefs as string[]) ?? []);
       const s = (d.subs ?? []).find((x) => x.id === b.id && ((mobile && x.customer.mobile === mobile) || refs.has(x.order_ref)));
       if (!s) throw new ApiError(404, "Plan not found");
-      wrap(() => subscriptionAction(s, b.action as "pause" | "resume" | "cancel", today));
+      // customers can only cancel; pause and resume are admin-only
+      if (b.action !== "cancel") throw new ApiError(403, "Plans can't be paused. Call us if you need to change your deliveries.");
+      wrap(() => subscriptionAction(s, "cancel", today));
       audit(`customer:${s.customer.mobile}`, "subscription", s.ref, String(b.action), null, null);
       commit();
       return viewSub(s, today);

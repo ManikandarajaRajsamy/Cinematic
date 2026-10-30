@@ -72,7 +72,7 @@ export const POLICIES = [
       "Beyond {free_radius_km} km, a delivery charge applies based on the road (driving) distance from the shop or branch preparing your order, as shown in the table below. Orders above {discount_above} get {discount_percent}% off the delivery charge.",
       "The exact charge for your address is worked out from the map location you set, and shown in your cart before you confirm the order. If the road distance can't be worked out, please call {support_phone} to order.",
       "We deliver up to {max_radius_km} km, within {district} district only. For addresses further away, you're welcome to pick up at Periyar Bus Stand.",
-      "Daily plan orders are delivered free{plan_free_suffix}.",
+      "Daily plan orders are always delivered free, at any distance we deliver to.",
       "Delivery estimates shown are illustrative and intended for demonstration only — they do not represent a binding delivery promise.",
     ],
   },

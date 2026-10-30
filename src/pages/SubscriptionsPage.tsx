@@ -54,7 +54,7 @@ export function SubscriptionsPage() {
           <div className="sub-benefits mt-12">
             {[
               { icon: Sparkles, title: "Up to 15% off at payment", text: "Discount applied dynamically to eligible subscription items at checkout — shown before you place an order." },
-              { icon: Repeat, title: "7, 15 or 30 days", text: "Choose how long your daily plan runs. Pause, resume, or cancel it from this page." },
+              { icon: Repeat, title: "7, 15 or 30 days", text: "Choose how long your daily plan runs. Paid once online by UPI, delivered free every day." },
               { icon: Check, title: "Same menu, same prices", text: "Subscriptions use the exact same products and prices as the catalogue. No hidden markups." },
             ].map((b, i) => (
               <div className="sub-benefit card" key={i}>
@@ -180,7 +180,7 @@ export function SubscriptionsPage() {
                 </div>
                 <ul className="sp-perks">
                   <li><CalendarDays size={14} /> {days} days · {qty} × {variant?.label ?? ""} each morning</li>
-                  {delivery?.plan_free_delivery && <li><Truck size={14} /> Free delivery on plan orders</li>}
+                  <li><Truck size={14} /> Free delivery on plan orders</li>
                   <li><Sparkles size={14} /> {pct}% off for a {days}-day plan</li>
                 </ul>
               </div>
@@ -188,7 +188,7 @@ export function SubscriptionsPage() {
           })()}
 
           <button className="btn btn-primary btn-block btn-lg" onClick={handleSubscribe} disabled={!product || !variant?.inStock}>Add {planDays}-day plan to cart · ₹{subPrice * qty * planDays} <ArrowRight size={18} /></button>
-          <p className="sp-fine">The plan is paid once at checkout and starts the day you order. Pause anytime; paused days are added to the end.</p>
+          <p className="sp-fine">The plan is paid once online by UPI at checkout and starts the day you order. Delivery is always free on plans.</p>
         </div>
         <style>{`
           .sp { padding: 30px 32px 30px; display: flex; flex-direction: column; gap: 22px; }

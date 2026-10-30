@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pause, Play, X } from "lucide-react";
+import { X } from "lucide-react";
 import { ops, type SubView } from "@/api/ops";
 import { ApiError } from "@/api/client";
 import { useStore } from "@/store/store";
@@ -8,7 +8,7 @@ const fmt = (d: string | null) => (d ? new Date(d + "T00:00:00").toLocaleDateStr
 
 /**
  * The customer's daily plans, from the server. Signed in: all plans on the account; guest: plans from orders
- * placed on this device. Pause / resume / cancel follow the same rules as the admin screen.
+ * placed on this device. Customers can only cancel; pausing is not offered.
  */
 export function MyPlans({ title = "Your daily plans", emptyText }: { title?: string; emptyText?: string }) {
   const { state, toast } = useStore();
@@ -18,11 +18,11 @@ export function MyPlans({ title = "Your daily plans", emptyText }: { title?: str
   const load = useCallback(() => { ops.mySubscriptions(refs).then(setPlans).catch(() => setPlans([])); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
 
-  const act = async (s: SubView, action: "pause" | "resume" | "cancel") => {
-    if (action === "cancel" && !confirm(`Cancel this plan? There's no refund; deliveries continue until ${fmt(s.end_date) || "the end of the current period"}.`)) return;
+  const cancel = async (s: SubView) => {
+    if (!confirm(`Cancel this plan? There's no refund; deliveries continue until ${fmt(s.end_date) || "the end of the current period"}.`)) return;
     try {
-      await ops.subscriptionAction(s.id, action, refs);
-      toast(action === "pause" ? "Paused from tomorrow — your end date moves forward" : action === "resume" ? "Resumed from tomorrow" : "Plan cancelled", "success");
+      await ops.subscriptionAction(s.id, "cancel", refs);
+      toast("Plan cancelled", "success");
       load();
     } catch (e) { toast(e instanceof ApiError ? e.message : "Couldn't update the plan", "error"); }
   };
@@ -47,15 +47,13 @@ export function MyPlans({ title = "Your daily plans", emptyText }: { title?: str
             <p className="mp-sub">{fmt(s.start_date)} → {s.end_date ? fmt(s.end_date) : "on resume"}{s.failed > 0 && ` · ${s.failed} missed day${s.failed > 1 ? "s" : ""} added back`}</p>
             {(s.status === "ACTIVE" || s.status === "PAUSED") && (
               <div className="mp-actions">
-                {s.status === "ACTIVE" && <button className="btn btn-ghost btn-sm" onClick={() => act(s, "pause")}><Pause size={14} /> Pause</button>}
-                {s.status === "PAUSED" && <button className="btn btn-ghost btn-sm" onClick={() => act(s, "resume")}><Play size={14} /> Resume</button>}
-                <button className="btn btn-text btn-sm" onClick={() => act(s, "cancel")}><X size={14} /> Cancel</button>
+                <button className="btn btn-text btn-sm" onClick={() => cancel(s)}><X size={14} /> Cancel</button>
               </div>
             )}
           </article>
         ))}
       </div>
-      <p className="mp-fine">Paused days are delivered after you resume, so your end date moves forward. Cancelling stops the plan at the end of the current period; there are no refunds.</p>
+      <p className="mp-fine">Missed deliveries are added to the end of your plan. Cancelling stops the plan at the end of the current period; there are no refunds.</p>
       <style>{`
         .mp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--sp-4); }
         .mp-card { padding: var(--sp-5); display: flex; flex-direction: column; gap: 8px; }

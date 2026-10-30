@@ -115,7 +115,6 @@ export function AdminDelivery() {
           <div className="field"><label className="label" htmlFor="ds-district">Delivery district</label><input id="ds-district" className="input" value={s.district_restriction} onChange={(e) => set("district_restriction", e.target.value)} /></div>
           {num("plan_discount_percent", "Daily plan discount (%)")}
         </div>
-        <Toggle label="Free delivery on daily plans" checked={s.plan_free_delivery} onChange={(v) => set("plan_free_delivery", v)} />
         {errs._ && <span className="field-error">{errs._}</span>}
         <button className="btn btn-primary btn-block" onClick={save}>Save delivery settings</button>
         <p className="adm-hint">Last saved {new Date(s.updated_at).toLocaleString("en-IN")} by {s.updated_by}. Every change is recorded in the audit log.</p>

@@ -50,6 +50,9 @@ export function CheckoutPage() {
   const selected = state.addresses.find((x) => x.id === selectedAddr);
   const base = computeTotals(state.cart, state.activeCoupon, 0, planPctFor);
   const { quote, loading: quoting } = useDeliveryQuote(selected, base.subtotal, base.hasSubscription);
+  // daily plans are paid online only
+  const payOptions = base.hasSubscription ? PAYMENT_OPTIONS.filter((o) => o.id === "upi") : PAYMENT_OPTIONS;
+  useEffect(() => { if (base.hasSubscription && payment !== "upi") setPayment("upi"); }, [base.hasSubscription, payment]);
   const { data: settings } = useDeliverySettings();
   // the fee shown is the server's quote; the server prices the order again when it is placed
   const totals = computeTotals(state.cart, state.activeCoupon, quote?.deliverable ? quote.fee / 100 : 0, planPctFor);
@@ -280,7 +283,7 @@ export function CheckoutPage() {
               <h2 className="title-lg mb-6">Payment method</h2>
               <p className="mb-6" style={{ fontSize: "var(--font-sm)", color: "var(--text-dim)" }}>{razorpayConfigured() ? "UPI payments are processed securely by Razorpay." : "Demo store: UPI opens a demo payment step until Razorpay is connected."}</p>
               <div className="payment-options">
-                {PAYMENT_OPTIONS.map((opt) => (
+                {payOptions.map((opt) => (
                   <label key={opt.id} className={`pay-option ${payment === opt.id ? "active" : ""}`}>
                     <input type="radio" name="payment" checked={payment === opt.id} onChange={() => setPayment(opt.id)} />
                     <opt.icon size={20} />
@@ -288,6 +291,7 @@ export function CheckoutPage() {
                   </label>
                 ))}
               </div>
+              {base.hasSubscription && <p className="mt-4" style={{ fontSize: "var(--font-sm)", color: "var(--text-dim)" }}>Daily plans are paid online by UPI. Cash on delivery isn't available for plans.</p>}
             </div>
           )}
 
