@@ -59,7 +59,7 @@ function ProductList() {
       {loading && !data ? <div className="card admin-empty">Loading products…</div> : (
         <div className="admin-table-wrap">
           <table className="admin-table">
-            <thead><tr><th></th><th>Code</th><th>Product</th><th>Base price</th><th>Plan price</th><th>Online</th><th>POS</th><th>Plan</th><th>Max/order</th><th>Sort</th><th></th></tr></thead>
+            <thead><tr><th></th><th>Code</th><th>Product</th><th>Base price</th><th>Plan price</th><th>Online</th><th>Plan</th><th>Max/order</th><th>Sort</th><th></th></tr></thead>
             <tbody>
               {(data ?? []).map((p) => (
                 <tr key={p.id} style={p.is_active ? undefined : { opacity: 0.5 }}>
@@ -68,7 +68,7 @@ function ProductList() {
                   <td><strong>{p.name_en} {p.size_label_en}</strong> <SeedFlag by={p.updated_by} />{!p.is_active && <span className="badge"> Inactive</span>}<br /><span lang="ta" style={{ color: "var(--text-dim)" }}>{p.name_ta} {p.size_label_ta}</span></td>
                   <td>{rupees(p.base_price)}</td>
                   <td>{p.plan_price != null ? rupees(p.plan_price) : "—"}</td>
-                  <td>{p.sell_online ? "Yes" : "—"}</td><td>{p.sell_in_pos ? "Yes" : "—"}</td><td>{p.plan_eligible ? "Yes" : "—"}</td>
+                  <td>{p.sell_online ? "Yes" : "—"}</td><td>{p.plan_eligible ? "Yes" : "—"}</td>
                   <td>{p.max_qty_per_order}</td><td>{p.sort_order}</td>
                   <td><button className="btn btn-sm btn-solid" onClick={() => open(p)}><Pencil size={14} /> Edit</button></td>
                 </tr>
@@ -109,7 +109,6 @@ function ProductList() {
             <div className="adm-toggles">
               <Toggle label="Active" checked={form.is_active} onChange={(v) => set("is_active", v)} />
               <Toggle label="Sell online" checked={form.sell_online} onChange={(v) => set("sell_online", v)} />
-              <Toggle label="Sell in POS" checked={form.sell_in_pos} onChange={(v) => set("sell_in_pos", v)} />
               <Toggle label="Daily plan eligible" checked={form.plan_eligible} onChange={(v) => set("plan_eligible", v)} />
             </div>
             {errs._ && <span className="field-error">{errs._}</span>}
