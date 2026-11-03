@@ -179,8 +179,27 @@ export function CartPage() {
         .summary-row.total { font-size: var(--font-md); color: var(--text); font-weight: 600; }
         .sub-note { margin-top: var(--sp-4); }
         @media (max-width: 800px) { .cart-layout { grid-template-columns: 1fr; } .cart-summary { position: static; } }
+        @media (max-width: 560px) {
+          .cart-layout { gap: var(--sp-6); }
+          .cart-line { grid-template-columns: 72px minmax(0, 1fr); gap: var(--sp-3); padding: 12px; }
+          .cart-line-img img { width: 72px; height: 72px; }
+          .cart-line-body { min-width: 0; }
+          .cart-line-head { align-items: flex-start; flex-wrap: wrap; }
+          .cart-line-head > a { min-width: 0; }
+          .cart-line-head h3 { overflow-wrap: anywhere; }
+          .cart-line-controls { gap: var(--sp-2); }
+          .cart-line-subtotal { font-size: 1.1rem; }
+          .cart-actions { display: grid; grid-template-columns: 1fr; }
+          .cart-actions .btn { width: 100%; justify-content: center; }
+          .cart-summary { padding: var(--sp-5); background: var(--cream); }
+          .cart-summary .coupon-field { min-width: 0; }
+          .coupon-field input { min-width: 0; font-size: 16px; }
+          .cart-summary .coupon-hint { line-height: 1.5; }
+          .summary-row { align-items: flex-start; gap: var(--sp-3); }
+          .summary-row > :last-child { text-align: right; overflow-wrap: anywhere; }
+          .cart-delivery-note { text-align: left; line-height: 1.5; }
+        }
       `}</style>
     </section>
   );
 }
-

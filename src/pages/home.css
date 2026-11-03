@@ -11,6 +11,10 @@
 .home > section.hs:not(.hs-white):not(.hs-beige):not(.ev-feat):not(.story) { background: linear-gradient(180deg, rgba(250, 247, 240, 0.4), rgba(250, 247, 240, 0.58)); }
 .home-film { position: fixed; inset: 0; z-index: 0; background: var(--green-deep); }
 .home-film .hero-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 70% 55%; }
+@media (max-width: 760px) {
+  .home-film { background: var(--green-deep) url("/media/pour-poster-m.jpg") center / cover no-repeat; }
+  .home-film .hero-video { display: none; }
+}
 .home .hero { background: transparent; z-index: 1; }
 .home .story { z-index: 1; }
 .hs-green { background: var(--green); color: var(--cream); }
@@ -81,10 +85,10 @@
 .intro-b { position: absolute; left: 0; bottom: 0; width: 52%; aspect-ratio: 1; object-fit: cover; object-position: 74% 55%; border: 10px solid var(--cream); border-radius: 50%; }
 .intro-owner { position: relative; margin: 0; aspect-ratio: 4 / 5; border-radius: var(--radius-sm); overflow: hidden; background: var(--beige); }
 .intro-owner img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 25%; }
-/* the roundel stands on the temple film itself: no card behind it */
+/* the roundel stands directly on the story's solid background */
 .intro-owner.logo { display: grid; place-items: center; background: none; overflow: visible; }
 .intro-owner.logo img { filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.35)); }
-.intro-owner.logo figcaption { background: none; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6); }
+.intro-owner.logo figcaption { background: none; }
 .intro-owner.logo img { width: 76%; height: auto; object-fit: contain; margin-bottom: 18%; }
 .intro-owner figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 48px 20px 18px 45%; text-align: right; display: flex; flex-direction: column; background: linear-gradient(180deg, transparent, rgba(41, 41, 35, 0.75)); color: var(--white); }
 .intro-owner figcaption strong { font-family: var(--font-display); font-size: 1.5rem; color: var(--white); }
@@ -178,18 +182,20 @@
   .rvw-card { flex: 0 0 min(82vw, 340px); scroll-snap-align: start; }
 }
 
-/* --- Motion: scroll reveals and parallax (driven by useHomeMotion; off for reduced motion) --- */
+/* --- Motion: scroll reveals and parallax (driven by useScrollMotion; off for reduced motion) --- */
 .rv { opacity: 0; transition: opacity 800ms var(--ease), transform 1000ms var(--ease), clip-path 1100ms var(--ease); transition-delay: var(--rv-delay, 0ms); }
 .rv-text { transform: translateX(-36px); }
 .rv-text-r { transform: translateX(36px); }
 .rv-card { transform: translate3d(0, 48px, 0) scale(0.96); }
 .rv-media { clip-path: inset(12% 12% 12% 12% round 12px); transform: scale(1.06); }
 .rv.in { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round 0); }
-/* scrolling back up: content leaving the bottom of the screen flies down and away, then returns on the way down */
 .pc.rv.in:hover, .hp.rv.in:hover { transform: translateY(-3px); transition-delay: 0ms; }
-.hero-video, .intro-owner, .intro-b, .her-mark, .gl-1, .gl-3, .bg-video { will-change: translate; }
+.hero-video { will-change: translate; }
+@media (min-width: 901px) {
+  .intro-owner, .intro-b, .her-mark, .gl-1, .gl-3, .bg-video { will-change: translate; }
+}
 
-/* heritage: temple film behind a deep green veil */
+/* heritage: founder and product imagery over a soft green veil on the product film */
 .story { position: relative; overflow: hidden; color: var(--cream); }
 .story .intro { position: relative; z-index: 1; }
 .story .eyebrow { color: var(--gold); }
@@ -197,15 +203,8 @@
 .story .intro-text p { color: rgba(250, 247, 240, 0.85); }
 .story .intro-b { border-color: var(--green-deep); }
 .story .her-steps { margin-top: var(--sp-2); }
-.her-bg { position: absolute; inset: 0; }
-/* just enough spare height for a gentle drift, framed on the gopurams so the temple reads at a natural scale */
-.her-bg .bg-video { position: absolute; left: 0; top: -4%; width: 100%; height: 108%; object-fit: cover; object-position: 50% 30%; }
-/* the temple film in its own colours: no tint over it; the story text sits on a soft dark panel instead */
-.story { background: var(--charcoal); }
-/* a mild gradient over the film: light on the picture side, a little deeper behind the text */
-.her-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, rgba(0, 70, 60, 0.18) 0%, rgba(0, 60, 52, 0.28) 50%, rgba(20, 22, 18, 0.42) 100%); }
-.story .intro-text { padding: var(--sp-8); border-radius: var(--radius-md); background: rgba(20, 22, 18, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.story .intro-text h2, .story .intro-text p, .story .intro-text li { text-shadow: 0 1px 12px rgba(0, 0, 0, 0.35); }
+.story { background: linear-gradient(180deg, rgba(0, 70, 60, 0.58), rgba(0, 48, 42, 0.72)); }
+.story .intro-text { padding: var(--sp-8); }
 @media (max-width: 600px) { .story .intro-text { padding: var(--sp-5); } }
 
 /* product photos drift inside their frames: slightly enlarged so no edge shows */

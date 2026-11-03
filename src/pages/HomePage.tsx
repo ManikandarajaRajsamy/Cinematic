@@ -28,7 +28,7 @@ const HOME_MOTION: MotionConfig = {
   // background videos are taller than their frame (see home.css); their shift is capped at that spare height
   parallax: [
     [".intro-owner", -0.06], [".intro-b", 0.12],
-    [".her-bg .bg-video", -0.08, 0.035], [".ev-feat-rate", -0.18], [".pc-img img", -0.06, 0.05], [".gl-2", 0.07], [".gl-1", -0.05], [".gl-3", 0.05],
+    [".ev-feat-rate", -0.18], [".pc-img img", -0.06, 0.05], [".gl-2", 0.07], [".gl-1", -0.05], [".gl-3", 0.05],
   ],
   tilt: ".hp, .pc, .pb-plan, .rvw-card",
 };
@@ -231,15 +231,12 @@ function Delivery() {
   );
 }
 
-/* 2 · Our story: welcome, the founder and our journey, in one section over the temple film */
+/* 2 · Our story: welcome, the founder and our journey */
 function Story() {
   const { t } = useLang();
   const { data: branches } = usePublicBranches();
   return (
     <section id="story" className="hs story">
-      <div className="her-bg" aria-hidden="true">
-        <BgVideo src="/media/temple-slow-m.mp4" poster="/media/temple-first-m.webp" />
-      </div>
       <div className="container intro">
         <div className="intro-media">
           <OwnerPortrait />
