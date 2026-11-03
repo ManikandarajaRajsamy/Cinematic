@@ -51,7 +51,7 @@ export function ResetPasswordPage() {
   return (
     <section className="rp">
       <div className="rp-card">
-        <Link to="/" className="rp-logo"><img src="/brand/logo.png" alt="Sri Sastha Paruthipaal" /></Link>
+        <Link to="/" className="rp-logo"><img src="/brand/logo.webp" alt="Sri Sastha Paruthipaal" /></Link>
         {state === "checking" && <p className="rp-lead">Checking your link…</p>}
         {state === "invalid" && (
           <>
@@ -80,15 +80,15 @@ export function ResetPasswordPage() {
         )}
       </div>
       <style>{`
-        .rp { min-height: 100vh; min-height: 100svh; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(70% 50% at 50% 0%, rgba(0, 91, 79, 0.45), transparent 70%), #001A16; position: relative; z-index: 1; }
-        .rp-card { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 16px; padding: 32px; border-radius: var(--radius-lg); border: 1px solid var(--border-strong); background: rgba(0, 36, 31, 0.85); box-shadow: var(--shadow-lg); }
+        .rp { min-height: 100vh; min-height: 100svh; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(70% 50% at 50% 0%, rgba(0, 91, 79, 0.12), transparent 70%), var(--cream); position: relative; z-index: 1; }
+        .rp-card { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 16px; padding: 32px; border-radius: var(--radius-lg); border: 1px solid var(--border-strong); background: #FFFFFF; box-shadow: var(--shadow-lg); }
         .rp-logo img { width: 84px; margin: 0 auto 4px; }
         .rp-title { font-family: var(--font-display); font-size: 1.9rem; font-weight: 400; letter-spacing: -0.035em; text-align: center; }
         .rp-lead { text-align: center; color: var(--text-muted); }
         .rp-form { display: flex; flex-direction: column; gap: 16px; }
         .rp-ok { width: 60px; height: 60px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center; background: rgba(46, 156, 126, 0.2); color: var(--accent-green-bright); }
-        .rp .lg-input { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: rgba(0, 26, 22, 0.8); }
-        .rp .lg-input:focus-within { border-color: var(--accent-gold); box-shadow: 0 0 0 3px rgba(255, 122, 24, 0.18); }
+        .rp .lg-input { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: #FFFFFF; }
+        .rp .lg-input:focus-within { border-color: var(--accent-gold); box-shadow: 0 0 0 3px rgba(0, 91, 79, 0.18); }
         .rp .lg-input > svg { color: var(--text-dim); }
         .rp .lg-input input { flex: 1; padding: 14px 0; background: none; border: none; color: var(--text); }
         .rp .lg-eye { color: var(--text-dim); padding: 6px; }

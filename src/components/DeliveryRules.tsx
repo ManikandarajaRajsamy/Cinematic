@@ -51,7 +51,7 @@ export function DeliveryRules({ compact = false }: { compact?: boolean }) {
       )}
       <style>{`
         .dr { display: flex; flex-direction: column; gap: 14px; }
-        .dr-badge { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; font-size: var(--font-sm); font-weight: 600; color: var(--accent-gold-bright); background: rgba(255, 122, 24, 0.1); border: 1px solid var(--border-bright); }
+        .dr-badge { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; font-size: var(--font-sm); font-weight: 600; color: var(--accent-gold-bright); background: rgba(0, 91, 79, 0.1); border: 1px solid var(--border-bright); }
         .dr-table { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-card); }
         .dr-row { display: grid; grid-template-columns: 1.1fr 1fr 1.2fr; gap: 12px; padding: 12px 16px; font-size: var(--font-sm); border-top: 1px solid var(--border); align-items: center; }
         .dr-row > span:not(:first-child) { text-align: right; font-weight: 600; }

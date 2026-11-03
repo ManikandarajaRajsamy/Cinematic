@@ -1,133 +1,99 @@
-import { BrandLogo } from "@/components/BrandLogo";
 import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { ShoppingBag, User, Search, Menu, X, Truck } from "lucide-react";
+import { ShoppingBag, User, Menu, X, Phone, PackageSearch } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
 import { useDeliverySettings } from "@/api/client";
 import { useStore } from "@/store/store";
+import { NAV_ITEMS, NAV_PRIMARY, useLang } from "@/i18n";
+import { SHOP } from "@/data/home";
 
-const NAV = [
-  { to: "/", label: "Home" },
-  { to: "/our-story", label: "Our Story" },
-  { to: "/products", label: "Products" },
-  { to: "/subscriptions", label: "Subscriptions" },
-  { to: "/branches", label: "Branches" },
-  { to: "/events", label: "Events" },
-  { to: "/contact", label: "Contact" },
-];
-
-function Logo() {
+function LangSwitch() {
+  const { lang, setLang } = useLang();
   return (
-    <Link to="/" className="flex items-center gap-2" aria-label="Sri Sastha Paruthipaal home">
-      <BrandLogo />
-      <style>{`
-        .logo-text { display: flex; flex-direction: column; line-height: 1; }
-        .logo-line1 { font-family: var(--font-display); font-size: 13px; font-weight: 500; color: var(--text); letter-spacing: 0.02em; }
-        .logo-line2 { font-family: var(--font-body); font-size: 10px; font-weight: 600; letter-spacing: 0.28em; text-transform: uppercase; color: var(--accent-gold); margin-top: 3px; }
-      `}</style>
-    </Link>
+    <div className="lang-switch" role="group" aria-label="Language">
+      <button className={lang === "en" ? "on" : ""} aria-pressed={lang === "en"} onClick={() => setLang("en")}>EN</button>
+      <span aria-hidden="true">/</span>
+      <button className={lang === "ta" ? "on" : ""} aria-pressed={lang === "ta"} onClick={() => setLang("ta")} lang="ta">தமிழ்</button>
+    </div>
   );
 }
 
+/** One header for every screen. Over the homepage video it starts transparent and turns cream once you scroll. */
 export function Navbar() {
-  const { cartCount, state, products } = useStore();
+  const { cartCount, state } = useStore();
   const { data: delivery } = useDeliverySettings();
+  const { t } = useLang();
+  const { pathname, hash } = useLocation();
   const [scrolled, setScrolled] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const loc = useLocation();
+  const [open, setOpen] = useState(false);
+  const overVideo = pathname === "/" && !scrolled;
 
-  useEffect(() => { setMobileOpen(false); setSearchOpen(false); }, [loc.pathname]);
+  useEffect(() => { setOpen(false); }, [pathname, hash]);
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener("scroll", onScroll);
+    const on = () => setScrolled(window.scrollY > 40);
+    on();
+    window.addEventListener("scroll", on, { passive: true });
+    return () => window.removeEventListener("scroll", on);
   }, []);
 
-  const results = query.trim() ? products.filter((p) => p.name.toLowerCase().includes(query.toLowerCase())).slice(0, 5) : [];
+  const phone = delivery?.support_phone;
+  const isActive = (to: string) => (to.includes("#") ? false : to === "/" ? pathname === "/" : pathname.startsWith(to));
 
   return (
     <>
-      <header className={`nav-bar ${scrolled ? "scrolled" : ""}`}>
-        <div className="nav-inner">
-          <Logo />
-          <nav className="nav-desktop" aria-label="Primary">
-            {NAV.map((n) => (
-              <NavLink key={n.to} to={n.to} end={n.to === "/"}
-                className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-                {n.label}
-              </NavLink>
-            ))}
-          </nav>
-          <div className="nav-actions">
-            {delivery && delivery.free_radius_km > 0 && (
-              <Link to="/policies#delivery" className="nav-delivery-chip"><Truck size={13} /> Free delivery within {delivery.free_radius_km} km</Link>
-            )}
-            <button className="nav-icon-btn" aria-label="Search" onClick={() => setSearchOpen((s) => !s)}>
-              <Search size={18} />
-            </button>
-            <Link to="/account" className="nav-icon-btn" aria-label="Account">
-              <User size={18} />
-            </Link>
-            <Link to="/cart" className="nav-icon-btn cart-btn" aria-label={`Cart with ${cartCount} items`}>
-              <ShoppingBag size={18} />
-              {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
-            </Link>
-            <button className="nav-icon-btn mobile-only" aria-label="Menu" onClick={() => setMobileOpen(true)}>
-              <Menu size={20} />
-            </button>
+      <header className={`hdr ${overVideo ? "hdr-clear" : ""}`}>
+        <div className="hdr-strip">
+          <div className="hdr-strip-in">
+            <span>{t("Madurai · Since 1999", "மதுரை · 1999 முதல்")}<span className="hdr-sep" />{SHOP.hours}</span>
+            <div className="hdr-strip-r">
+              <Link to="/tracking" className="hdr-phone"><PackageSearch size={13} /> {t("Track order", "ஆர்டர் நிலை")}</Link>
+              {phone && <a href={`tel:${phone}`} className="hdr-phone"><Phone size={13} /> {phone}</a>}
+              <LangSwitch />
+            </div>
           </div>
         </div>
-        {searchOpen && (
-          <div className="nav-search" role="search">
-            <div className="container">
-              <div className="nav-search-field">
-                <Search size={18} />
-                <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search parcels…" aria-label="Search products" />
-                <button onClick={() => { setSearchOpen(false); setQuery(""); }} aria-label="Close search"><X size={18} /></button>
-              </div>
-              {results.length > 0 && (
-                <ul className="nav-search-results">
-                  {results.map((p) => (
-                    <li key={p.id}>
-                      <Link to={`/product/${p.id}`}>
-                        <img src={p.image} alt="" loading="lazy" />
-                        <span>{p.name}</span>
-                        <span className="text-dim">₹{p.variants[0].price}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+        <div className="hdr-main">
+          <Link to="/" className="hdr-logo" aria-label="Sri Sastha Paruthipaal home"><BrandLogo size={58} /></Link>
+          <nav className="hdr-nav" aria-label="Primary">
+            {NAV_PRIMARY.map((n) => (
+              <NavLink key={n.to} to={n.to} className={() => `hdr-link ${isActive(n.to) ? "on" : ""}`}>{t(n.en, n.ta)}</NavLink>
+            ))}
+          </nav>
+          <div className="hdr-icons">
+            <Link to="/tracking" className="hdr-icon" aria-label={t("Track your order", "ஆர்டர் நிலை")} title={t("Track your order", "ஆர்டர் நிலை")}><PackageSearch size={19} /></Link>
+            <Link to={state.user.loggedIn ? "/account" : "/login"} className="hdr-icon" aria-label={t("Account", "கணக்கு")}><User size={19} /></Link>
+            <Link to="/cart" className="hdr-icon" aria-label={`Cart with ${cartCount} items`}>
+              <ShoppingBag size={19} />
+              {cartCount > 0 && <span className="hdr-badge">{cartCount}</span>}
+            </Link>
+            <button className="hdr-icon hdr-burger" aria-label="Open menu" aria-expanded={open} onClick={() => setOpen(true)}><Menu size={22} /></button>
           </div>
-        )}
+        </div>
       </header>
 
-      {mobileOpen && (
-        <div className="mobile-nav">
-          <div className="drawer-backdrop" onClick={() => setMobileOpen(false)} />
-          <div className="drawer drawer-left">
-            <div className="drawer-head">
-              <Logo />
-              <button className="modal-close" onClick={() => setMobileOpen(false)} aria-label="Close menu"><X size={18} /></button>
+      {open && (
+        <div className="mnav">
+          <div className="drawer-backdrop" onClick={() => setOpen(false)} />
+          <div className="drawer" role="dialog" aria-modal="true" aria-label="Menu">
+            <div className="mnav-head">
+              <BrandLogo size={48} />
+              <button className="modal-close" style={{ position: "static" }} onClick={() => setOpen(false)} aria-label="Close menu"><X size={18} /></button>
             </div>
-            <nav className="drawer-nav" aria-label="Mobile primary">
-              {NAV.map((n) => (
-                <NavLink key={n.to} to={n.to} end={n.to === "/"}
-                  className={({ isActive }) => `drawer-link ${isActive ? "active" : ""}`}>
-                  {n.label}
-                </NavLink>
+            <nav className="mnav-links" aria-label="Mobile primary">
+              {NAV_PRIMARY.map((n) => (
+                <Link key={n.to} to={n.to} className={`mnav-link ${isActive(n.to) ? "on" : ""}`}>{t(n.en, n.ta)}</Link>
               ))}
-              <div className="divider" style={{ margin: "16px 0" }} />
-              <NavLink to="/account" className="drawer-link">Account</NavLink>
-              <NavLink to="/cart" className="drawer-link">Cart {cartCount > 0 && `(${cartCount})`}</NavLink>
-              <NavLink to="/admin" className="drawer-link">Admin Demo</NavLink>
+              <span className="mnav-more">{t("More", "மேலும்")}</span>
+              {NAV_ITEMS.filter((n) => !NAV_PRIMARY.some((p) => p.to === n.to)).map((n) => (
+                <Link key={n.to} to={n.to} className={`mnav-sub ${isActive(n.to) ? "on" : ""}`}>{t(n.en, n.ta)}</Link>
+              ))}
             </nav>
-            <div className="drawer-foot">
-              {state.user.loggedIn ? <span>Signed in as {state.user.name || state.user.email}</span> : <span>Browse as guest — sign in to save demo data</span>}
+            <div className="mnav-foot">
+              <LangSwitch />
+              <Link to={state.user.loggedIn ? "/account" : "/login"} className="btn btn-ghost btn-sm"><User size={14} /> {state.user.loggedIn ? t("My account", "என் கணக்கு") : t("Sign in", "உள்நுழை")}</Link>
+              <Link to="/tracking" className="btn btn-ghost btn-sm"><PackageSearch size={14} /> {t("Track order", "ஆர்டர் நிலை")}</Link>
+              <Link to="/cart" className="btn btn-primary btn-sm"><ShoppingBag size={14} /> {t("Cart", "கூடை")}{cartCount > 0 && ` (${cartCount})`}</Link>
+              {phone && <a href={`tel:${phone}`} className="hdr-phone"><Phone size={13} /> {phone}</a>}
             </div>
           </div>
         </div>

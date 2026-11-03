@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Phone, Package, ShieldCheck } from "lucide-react";
 import { Check, MapPin, Plus, Minus, Trash2, Pencil, Wallet, Banknote, ArrowRight, ArrowLeft, Truck, LocateFixed, Map } from "lucide-react";
@@ -10,6 +10,7 @@ import { Modal } from "@/components/Modal";
 import { AddressFields, emptyAddress, toAddressInput, validateAddress as checkAddress, type AddressInput } from "@/components/AddressFields";
 import { useDeliveryQuote } from "@/hooks/useDeliveryQuote";
 import { useDeliverySettings } from "@/api/client";
+import { DELIVERY_SLOTS, dayLabel, upcomingDates } from "@/data/delivery";
 
 const STEPS = ["Details", "Address", "Summary", "Payment", "Confirm"];
 const PAYMENT_OPTIONS = [
@@ -32,6 +33,8 @@ export function CheckoutPage() {
   const [demoPay, setDemoPay] = useState<((ok: boolean) => void) | null>(null);
   const [pickFor, setPickFor] = useState<Address | null>(null); // address being pinned on the map
   const [locatingId, setLocatingId] = useState<string | null>(null);
+  const dates = upcomingDates(3);
+  const [when, setWhen] = useState({ date: dates[0], slot: DELIVERY_SLOTS[0] });
   const pinAddress = (a: Address, lat: number, lng: number) => {
     updateAddress(a.id, { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 });
     setSelectedAddr(a.id); setErrors({});
@@ -119,11 +122,12 @@ export function CheckoutPage() {
     if (placing || !selected) return;
     setPlacing(true);
     try {
+      let paymentId: string | null = null;
       if (payment === "upi") {
-        const paymentId = await collectUpi();
+        paymentId = await collectUpi();
         if (!paymentId) { toast("Payment cancelled. Your order wasn't placed.", "error"); setPlacing(false); return; }
       }
-      const { order, account } = await placeOrder(customer, selected, payment as "upi" | "cod");
+      const { order, account } = await placeOrder(customer, selected, payment as "upi" | "cod", state.cart.some((l) => !l.subscription) ? when : undefined, paymentId ?? undefined);
       toast(`Order ${order.number} placed!`, "success");
       // replace the checkout in history: the back button cannot return to a finished checkout.
       // claimToken is only present when this order created a new account (offer to set a password).
@@ -213,6 +217,17 @@ export function CheckoutPage() {
                   ))}
                 </div>
               )}
+              {state.cart.some((l) => !l.subscription) && (
+                <div className="co-when">
+                  <h3 className="title-md">Delivery day and time</h3>
+                  <div className="co-when-row" role="radiogroup" aria-label="Delivery day">
+                    {dates.map((d, i) => <button type="button" role="radio" aria-checked={when.date === d} key={d} className={`co-chip ${when.date === d ? "on" : ""}`} onClick={() => setWhen({ ...when, date: d })}>{dayLabel(d, i)}</button>)}
+                  </div>
+                  <div className="co-when-row" role="radiogroup" aria-label="Delivery time">
+                    {DELIVERY_SLOTS.map((s) => <button type="button" role="radio" aria-checked={when.slot === s} key={s} className={`co-chip ${when.slot === s ? "on" : ""}`} onClick={() => setWhen({ ...when, slot: s })}>{s}</button>)}
+                  </div>
+                </div>
+              )}
               <details className="addr-rules">
                 <summary>How delivery is charged</summary>
                 <DeliveryRules compact />
@@ -235,10 +250,10 @@ export function CheckoutPage() {
                         <strong>{p.name}</strong>
                         <span>{v.label} · ₹{v.price} each{line.subscription ? ` · ${line.planDays}-day plan (per day)` : ""}</span>
                         <div className="co-qty" aria-label={`Quantity of ${p.name}`}>
-                          <button type="button" aria-label="Decrease" onClick={() => updateQty(line.productId, line.variantId, line.qty - 1)}><Minus size={14} /></button>
+                          <button type="button" aria-label="Decrease" onClick={() => updateQty(line.productId, line.variantId, line.qty - 1, line.subscription)}><Minus size={14} /></button>
                           <span>{line.qty}</span>
-                          <button type="button" aria-label="Increase" disabled={line.qty >= (p.maxQty ?? 99)} onClick={() => updateQty(line.productId, line.variantId, line.qty + 1)}><Plus size={14} /></button>
-                          <button type="button" className="co-remove" onClick={() => { removeFromCart(line.productId, line.variantId); toast(`${p.name} removed`); }}><Trash2 size={13} /> Remove</button>
+                          <button type="button" aria-label="Increase" disabled={line.qty >= (p.maxQty ?? 99)} onClick={() => updateQty(line.productId, line.variantId, line.qty + 1, line.subscription)}><Plus size={14} /></button>
+                          <button type="button" className="co-remove" onClick={() => { removeFromCart(line.productId, line.variantId, line.subscription); toast(`${p.name} removed`); }}><Trash2 size={13} /> Remove</button>
                         </div>
                       </div>
                       <span className="checkout-item-price">₹{lineSubtotal(line)}</span>
@@ -313,6 +328,7 @@ export function CheckoutPage() {
                       <strong>{selected?.label}</strong>
                       <p>{selected?.line1}{selected?.line2 ? `, ${selected.line2}` : ""}, {selected?.area} — {selected?.pincode}</p>
                       {quote?.deliverable && <p className="cf-ok"><Truck size={13} /> {quote.message}</p>}
+                      {state.cart.some((l) => !l.subscription) && <p>{dayLabel(when.date, dates.indexOf(when.date))} · {when.slot}</p>}
                     </section>
                     <section className="cf-card">
                       <div className="cf-card-head"><Phone size={16} /><span>Contact</span></div>
@@ -397,7 +413,7 @@ export function CheckoutPage() {
         .cf { display: flex; flex-direction: column; gap: var(--sp-6); }
         .cf-head { display: flex; flex-direction: column; gap: 8px; }
         .cf-head p { font-size: var(--font-sm); }
-        .cf-badge { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-gold-bright); border: 1px solid var(--border-bright); background: rgba(255, 122, 24, 0.08); }
+        .cf-badge { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-gold-bright); border: 1px solid var(--border-bright); background: rgba(0, 91, 79, 0.08); }
         .cf-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: var(--sp-5); align-items: start; }
         .cf-details { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .cf-card { padding: 14px 16px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--bg-glass-light); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -413,7 +429,7 @@ export function CheckoutPage() {
         .cf-items span { flex: 1; }
         .cf-items small { color: var(--text-dim); }
         .cf-items em { font-style: normal; font-weight: 600; color: var(--text-muted); }
-        .cf-receipt { position: sticky; top: calc(var(--nav-h) + 16px); padding: 20px; border-radius: var(--radius-lg); border: 1px solid var(--border-bright); background: linear-gradient(160deg, rgba(255, 122, 24, 0.1), rgba(0, 26, 22, 0.55)); display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow-md); }
+        .cf-receipt { position: sticky; top: calc(var(--nav-h) + 16px); padding: 20px; border-radius: var(--radius-lg); border: 1px solid var(--border-bright); background: linear-gradient(160deg, rgba(0, 91, 79, 0.1), #FFFFFF); display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow-md); }
         .cf-receipt-title { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); }
         .cf-rows { display: flex; flex-direction: column; gap: 10px; font-size: var(--font-sm); }
         .cf-rows > div { display: flex; justify-content: space-between; gap: 12px; }
@@ -435,7 +451,7 @@ export function CheckoutPage() {
         .co-add { margin-top: var(--sp-5); display: flex; flex-direction: column; gap: 10px; }
         .co-add-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
         .co-add-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; border-radius: var(--radius-md); border: 1px dashed var(--border-strong); text-align: left; transition: border-color var(--t-fast), background var(--t-fast); }
-        .co-add-item:hover { border-color: var(--accent-gold); background: rgba(255, 122, 24, 0.06); }
+        .co-add-item:hover { border-color: var(--accent-gold); background: rgba(0, 91, 79, 0.06); }
         .co-add-item img { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; }
         .co-add-item span { flex: 1; display: flex; flex-direction: column; }
         .co-add-item small { color: var(--text-dim); }
@@ -457,7 +473,7 @@ export function CheckoutPage() {
         .checkout-step.active { color: var(--accent-gold); }
         .checkout-step.active .checkout-step-num { border-color: var(--accent-gold); background: var(--accent-gold-glow); color: var(--accent-gold-bright); }
         .checkout-step.done { color: var(--accent-green-bright); }
-        .checkout-step.done .checkout-step-num { background: var(--accent-green); color: var(--ink-950); border-color: var(--accent-green); }
+        .checkout-step.done .checkout-step-num { background: var(--accent-green); color: #FFFFFF; border-color: var(--accent-green); }
         .checkout-step-line { width: 32px; height: 1px; background: var(--border); margin-left: var(--sp-2); }
         .checkout-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--sp-8); }
         .checkout-panel { min-height: 200px; }
@@ -482,6 +498,11 @@ export function CheckoutPage() {
         .summary-row { display: flex; justify-content: space-between; font-size: var(--font-sm); color: var(--text-muted); }
         .summary-row.discount span:last-child { color: var(--accent-green-bright); }
         .summary-row.total { font-size: var(--font-md); color: var(--text); font-weight: 600; }
+        .co-when { margin-top: var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-3); }
+        .co-when-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+        .co-chip { padding: 10px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); font-size: var(--font-sm); color: var(--text-muted); transition: border-color var(--t-fast), background var(--t-fast); }
+        .co-chip:hover { border-color: var(--accent-green); }
+        .co-chip.on { background: var(--accent-green); border-color: var(--accent-green); color: #fff; }
         .payment-options { display: flex; flex-direction: column; gap: var(--sp-3); }
         .pay-option { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; transition: all var(--t-fast); background: var(--bg-elevated); }
         .pay-option:hover { border-color: var(--border-strong); }

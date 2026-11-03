@@ -121,16 +121,21 @@ export interface QuoteRequest {
   hasPlan?: boolean;
 }
 
-export interface OrderLineRequest { productId: string; qty: number; plan: boolean; planDays?: number }
+export interface OrderLineRequest { productId: string; qty: number; plan: boolean; planDays?: number; startDate?: string } // startDate: plan lines, YYYY-MM-DD
 export interface CreateOrderRequest {
   lines: OrderLineRequest[];
   addressId: string;
   couponCode?: string;
   customer: { name: string; phone: string; email: string };
   payment?: "upi" | "card" | "cod";
+  /** one-off parcels: the day and time window the customer chose */
+  deliveryDate?: string;
+  deliverySlot?: string;
+  /** UPI: the gateway's payment id from checkout (checked server-side before the order is accepted) */
+  paymentRef?: string;
 }
 export interface CreatedOrderPricing {
-  items: { productId: string; productName: string; sizeLabel: string; unitPrice: number; qty: number; lineTotal: number; plan: boolean; planDays?: number; planDiscountPct?: number }[];
+  items: { productId: string; productName: string; sizeLabel: string; unitPrice: number; qty: number; lineTotal: number; plan: boolean; planDays?: number; planDiscountPct?: number; startDate?: string }[];
   subtotal: number;
   couponDiscount: number;
   planDiscount: number;

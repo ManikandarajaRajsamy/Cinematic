@@ -10,22 +10,58 @@ import { Skeleton, inBranch, useBranchFilter } from "./ui";
 const TYPE_LABEL = { ORDER: "Delivery", SUBSCRIPTION: "Subscription", EVENT: "Event" } as const;
 const time = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "");
 
-/** Status of a delivery in words: Ready → Picked → Out for delivery → Delivered / Failed. */
-export const jobStatusText = (s: AdminJob["status"]) => ({ READY: "Ready", PICKED: "Picked", OUT: "Out for delivery", DELIVERED: "Delivered", FAILED: "Failed" })[s];
+/** Status of a delivery in words: Needs a partner → Assigned → Picked up → Delivered. */
+export const jobStatusText = (s: AdminJob["status"]) => ({ READY: "Needs a partner", ASSIGNED: "Assigned", PICKED: "Picked up", OUT: "Picked up", DELIVERED: "Delivered", FAILED: "Failed", CANCELLED: "Cancelled" })[s];
+
+/** Manual assignment: the admin picks an active partner for a delivery, or takes it back. */
+export function AssignSelect({ j, onDone }: { j: { id: string; status: AdminJob["status"]; partner_id: string | null; branch_id: string }; onDone: () => void }) {
+  const partners = useApi("admin-partners", ops.partners);
+  const { toast } = useStore();
+  if (j.status !== "READY" && j.status !== "ASSIGNED") return null;
+  const active = (partners.data ?? []).filter((p) => p.active).sort((a, b) => Number(b.branch_id === j.branch_id) - Number(a.branch_id === j.branch_id));
+  const assign = async (partnerId: string) => {
+    try { await ops.assignJob(j.id, partnerId); toast(partnerId ? "Partner assigned" : "Assignment removed", "success"); onDone(); }
+    catch (e) { toast(errorsFrom(e).message, "error"); }
+  };
+  return (
+    <select className="select assign-select" aria-label="Assign delivery partner" value={j.partner_id ?? ""} onClick={(e) => e.stopPropagation()} onChange={(e) => assign(e.target.value)}>
+      <option value="">{active.length ? "Assign a partner…" : "Add a partner first"}</option>
+      {active.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.mobile}</option>)}
+    </select>
+  );
+}
 
 /** Small tracking block reused by Orders, Subscriptions and Events. */
-export function JobTrack({ j, partnerName }: { j: AdminJob | (Omit<AdminJob, "partner_name"> & { partner_name?: string }) | null; partnerName?: string }) {
+/** `badge={false}` where the row already shows a status chip, so it isn't repeated. */
+export function JobTrack({ j, partnerName, badge = true }: { j: AdminJob | (Omit<AdminJob, "partner_name"> & { partner_name?: string }) | null; partnerName?: string; badge?: boolean }) {
   if (!j) return <span style={{ color: "var(--text-dim)" }}>—</span>;
   const name = partnerName ?? (j as AdminJob).partner_name;
   return (
     <span style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: "var(--font-xs)" }}>
-      <span className={`badge ${j.status === "DELIVERED" ? "badge-success" : j.status === "FAILED" ? "badge-error" : "badge-gold"}`} style={{ alignSelf: "flex-start" }}>{jobStatusText(j.status)}</span>
+      {badge && <span className={`badge ${j.status === "DELIVERED" ? "badge-success" : j.status === "FAILED" ? "badge-error" : "badge-gold"}`} style={{ alignSelf: "flex-start" }}>{jobStatusText(j.status)}</span>}
       {name && <span>by {name}{j.picked_at && ` · picked ${time(j.picked_at)}`}</span>}
       {j.delivered_at && <span>delivered {time(j.delivered_at)}</span>}
       {j.collected && <span>{j.collected.method} {inr(j.collected.amount)}{j.collected.amount !== j.due && " ≠ due"}</span>}
       {j.location && <a href={`https://www.google.com/maps?q=${j.location.lat},${j.location.lng}`} target="_blank" rel="noreferrer" style={{ color: "var(--accent-gold-bright)" }}><MapPin size={10} /> confirmed here</a>}
       {j.fail_reason && <span style={{ color: "#FF8A70" }}>{j.fail_reason}</span>}
     </span>
+  );
+}
+
+/** A subscription's own partner: every daily delivery of the plan is assigned to them. */
+export function PlanPartnerSelect({ plan, onDone }: { plan: { id: string; partner_id?: string | null; branch_id: string }; onDone: () => void }) {
+  const partners = useApi("admin-partners", ops.partners);
+  const { toast } = useStore();
+  const active = (partners.data ?? []).filter((p) => p.active).sort((a, b) => Number(b.branch_id === plan.branch_id) - Number(a.branch_id === plan.branch_id));
+  const assign = async (partnerId: string) => {
+    try { await ops.assignPlanPartner(plan.id, partnerId); toast(partnerId ? "Plan partner assigned: daily deliveries go to them" : "Plan partner removed", "success"); onDone(); }
+    catch (e) { toast(errorsFrom(e).message, "error"); }
+  };
+  return (
+    <select className="select assign-select" aria-label="Plan delivery partner" value={plan.partner_id ?? ""} onClick={(e) => e.stopPropagation()} onChange={(e) => assign(e.target.value)}>
+      <option value="">{active.length ? "Assign plan partner…" : "Add a partner first"}</option>
+      {active.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.mobile}</option>)}
+    </select>
   );
 }
 
@@ -37,17 +73,17 @@ export function AdminDeliveries() {
   // live: refetch every 30 s (and instantly when another tab on this device changes something)
   useEffect(() => { const t = window.setInterval(() => { reload(); tick((n) => n + 1); }, 30_000); return () => window.clearInterval(t); }, [reload]);
   const jobs = useMemo(() => (data ?? []).filter((j) => inBranch(branch, j.branch_id)), [data, branch]);
-  const cols: [string, AdminJob["status"][]][] = [["Ready (not picked)", ["READY"]], ["Picked", ["PICKED", "OUT"]], ["Delivered", ["DELIVERED"]], ["Failed", ["FAILED"]]];
+  const cols: [string, AdminJob["status"][]][] = [["Needs a partner", ["READY"]], ["Assigned", ["ASSIGNED"]], ["Picked up", ["PICKED", "OUT"]], ["Delivered", ["DELIVERED"]]];
   const now = Date.now();
   const alerts = [
     ...jobs.filter((j) => j.status === "READY" && new Date(j.slot_start).getTime() - now < 30 * 60_000)
-      .map((j) => ({ k: `np-${j.id}`, warn: true, text: `${j.ref.split("#")[0]} (${j.area || TYPE_LABEL[j.type]}) not picked — slot ${j.slot}` })),
+      .map((j) => ({ k: `np-${j.id}`, warn: true, text: `${j.ref.split("#")[0]} (${j.area || TYPE_LABEL[j.type]}) has no partner yet — ${j.slot}` })),
     ...jobs.filter((j) => j.status === "FAILED").map((j) => ({ k: `f-${j.id}`, warn: false, text: `${j.ref.split("#")[0]} failed: ${j.fail_reason} (${j.partner_name})` })),
     ...jobs.filter((j) => j.collected && j.collected.amount !== j.due).map((j) => ({ k: `c-${j.id}`, warn: false, text: `${j.ref} COD collected ${inr(j.collected!.amount)}, due ${inr(j.due)}: ${j.collected!.reason ?? "no reason"} (${j.partner_name})` })),
   ];
   return (
     <div className="page-fade">
-      <p className="adm-hint">Updates every 30 seconds. {data && `Last updated ${new Date().toLocaleTimeString("en-IN")}.`}</p>
+      <p className="adm-hint">Assign each delivery to a partner by hand. Partners only see what you assign to them. Updates every 30 seconds. {data && `Last updated ${new Date().toLocaleTimeString("en-IN")}.`}</p>
       {alerts.length > 0 && <div className="alerts" style={{ marginBottom: 14 }}>{alerts.map((a) => <div key={a.k} className={`alert ${a.warn ? "warn" : ""}`}><AlertTriangle size={16} /> {a.text}</div>)}</div>}
       {loading && !data ? <Skeleton rows={4} h={90} /> : (
         <div className="board">
@@ -62,8 +98,9 @@ export function AdminDeliveries() {
                     <div className="adm-inline" style={{ justifyContent: "space-between" }}><strong>{j.ref.split("#")[0]}</strong><span className="badge">{TYPE_LABEL[j.type]}</span></div>
                     <span><MapPin size={11} /> {j.area || "—"} · <Clock size={11} /> {j.slot}</span>
                     <span style={{ color: "var(--text-dim)" }}>{j.items.join(", ")}</span>
-                    <span>{j.due > 0 ? `COD ${inr(j.due)}` : "Paid"}{j.status === "OUT" && " · out for delivery"}</span>
-                    {j.partner_name && <span>{j.partner_name}{j.picked_at && ` · ${time(j.picked_at)}`}{j.delivered_at && ` → ${time(j.delivered_at)}`}</span>}
+                    <span>{j.due > 0 ? `Collect ${inr(j.due)}${j.paid_at ? " · payment confirmed" : ""}` : "Paid"}</span>
+                    {j.partner_name && <span>{j.partner_name}{j.picked_at && ` · picked ${time(j.picked_at)}`}{j.delivered_at && ` → delivered ${time(j.delivered_at)}`}</span>}
+                    <AssignSelect j={j} onDone={reload} />
                     {j.collected && <span>{j.collected.method} {inr(j.collected.amount)}</span>}
                     {j.fail_reason && <span style={{ color: "#FF8A70" }}>{j.fail_reason}</span>}
                   </div>
@@ -131,7 +168,7 @@ export function AdminPartners({ branches }: { branches: { id: string; name: stri
     } catch (e) { const { fields, message } = errorsFrom(e); setErrs({ ...fields, _: message }); }
   };
   const toggle = async (p: PartnerView) => {
-    if (p.active && !confirm(`Deactivate ${p.name}? They are signed out and can't pick orders.`)) return;
+    if (p.active && !confirm(`Deactivate ${p.name}? They are signed out and can't be assigned deliveries.`)) return;
     try { await ops.savePartner({ name: p.name, mobile: p.mobile, branch_id: p.branch_id, vehicle: p.vehicle, active: !p.active }, p.id); toast(p.active ? "Deactivated" : "Activated", "success"); reload(); }
     catch (e) { toast(errorsFrom(e).message, "error"); }
   };
@@ -151,8 +188,8 @@ export function AdminPartners({ branches }: { branches: { id: string; name: stri
                   <td data-label="Mobile">+91 {p.mobile}</td>
                   <td data-label="Branch">{bname(p.branch_id)}</td>
                   <td data-label="Vehicle">{p.vehicle || "—"}</td>
-                  <td data-label="Today">{p.summary.picked} picked · {p.summary.delivered} delivered</td>
-                  <td data-label="Status">{!p.active ? <span className="badge badge-error">Inactive</span> : p.online ? <span className="badge badge-success">Online</span> : <span className="badge">Offline</span>}</td>
+                  <td data-label="Today">{p.summary.picked} picked up · {p.summary.delivered} delivered</td>
+                  <td data-label="Status">{p.active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>}</td>
                   <td data-label=""><div className="admin-actions">
                     <button className="btn btn-sm btn-solid" onClick={() => open(p)}><Pencil size={13} /> Edit</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => { open(p); }} title="Set a new password in the edit form"><KeyRound size={13} /> Reset password</button>
@@ -174,6 +211,7 @@ export function AdminPartners({ branches }: { branches: { id: string; name: stri
             </div>
             <div className="field"><label className="label" htmlFor="pf-branch">Branch</label>
               <select id="pf-branch" className="select" value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })}>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select><FieldError msg={errs.branch_id} /></div>
+            <label className="adm-inline" style={{ gap: 8 }}><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> Active (can sign in and be assigned deliveries)</label>
             <div className="field"><label className="label" htmlFor="pf-pass">{form.id ? "New password (leave empty to keep)" : "Password"}</label><input id="pf-pass" className="input" type="text" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /><FieldError msg={errs.password} />
               {form.id && <span className="adm-hint" style={{ margin: 0 }}>Setting a new password signs the partner out on their phone.</span>}</div>
             {errs._ && <span className="field-error">{errs._}</span>}

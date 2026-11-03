@@ -1,118 +1,43 @@
-import { useMemo, useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Search, SlidersHorizontal, X, PackageOpen } from "lucide-react";
-import { ProductCard } from "@/components/ProductCard";
-import { useReveal } from "@/hooks/useReveal";
-import { CATEGORIES } from "@/data/catalog";
+import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
+import { ParcelCards } from "@/components/ParcelCards";
 import { useStore } from "@/store/store";
+import { useLang } from "@/i18n";
+import "./home.css";
 
-type SortKey = "featured" | "price-asc" | "price-desc" | "name";
-
+/** Product listing: the parcel sizes as cards, then the two main services. */
 export function ProductsPage() {
-  const [params, setParams] = useSearchParams();
-  const { products, productsLoading, productsError } = useStore();
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState(params.get("category") || "all");
-  const [sort, setSort] = useState<SortKey>("featured");
-  const [inStockOnly, setInStockOnly] = useState(false);
-  const r = useReveal();
-
-  useEffect(() => {
-    const c = params.get("category");
-    if (c) setCategory(c);
-  }, [params]);
-
-  const filtered = useMemo(() => {
-    let list = products.filter((p) =>
-      (category === "all" || p.category === category) &&
-      (!query || p.name.toLowerCase().includes(query.toLowerCase())) &&
-      (!inStockOnly || p.variants.some((v) => v.inStock))
-    );
-    if (sort === "price-asc") list = [...list].sort((a, b) => a.variants[0].price - b.variants[0].price);
-    if (sort === "price-desc") list = [...list].sort((a, b) => b.variants[0].price - a.variants[0].price);
-    if (sort === "name") list = [...list].sort((a, b) => a.name.localeCompare(b.name));
-    return list;
-  }, [products, category, query, sort, inStockOnly]);
-
-  const clearAll = () => { setQuery(""); setCategory("all"); setSort("featured"); setInStockOnly(false); setParams({}); };
-  const hasFilters = query || category !== "all" || sort !== "featured" || inStockOnly;
-
+  const { t } = useLang();
+  const { products } = useStore();
   return (
-    <section className="section" style={{ paddingTop: "var(--sp-32)" }}>
-      <div className="container">
-        <div className="sec-head">
-          <span className="eyebrow">The Menu</span>
-          <h1 className="display-2">Paruthipaal parcels</h1>
-          <p className="lead">Hot paruthipaal, sealed and delivered in Madurai. Pick a size and add it to your cart.</p>
+    <>
+      <section className="section pg-hero">
+        <div className="container">
+          <p className="pg-crumb"><Link to="/">{t("Home", "முகப்பு")}</Link> / {t("Products", "பொருட்கள்")}</p>
+          <h1 className="display-2">{t("Paruthipaal parcels", "பருத்திப்பால் பார்சல்கள்")}</h1>
+          <p className="lead mt-4">{t("Cooked fresh every morning, sealed hot and delivered on the day and time you choose.", "தினமும் காலையில் புதிதாகக் காய்ச்சி, சூடாக அடைத்து, நீங்கள் தேர்வு செய்த நாளில் டெலிவரி.")}</p>
         </div>
-
-        <div className="catalog-toolbar">
-          <div className="search-field">
-            <Search size={18} />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products…" aria-label="Search products" />
-            {query && <button onClick={() => setQuery("")} aria-label="Clear search"><X size={16} /></button>}
-          </div>
-          <div className="tabs">
-            {CATEGORIES.map((c) => (
-              <button key={c.id} className={`tab ${category === c.id ? "active" : ""}`} onClick={() => { setCategory(c.id); setParams(c.id === "all" ? {} : { category: c.id }); }}>
-                {c.label}
-              </button>
-            ))}
-          </div>
-          <div className="catalog-controls">
-            <label className="filter-toggle">
-              <input type="checkbox" checked={inStockOnly} onChange={(e) => setInStockOnly(e.target.checked)} />
-              <span>In stock only</span>
-            </label>
-            <div className="select-wrap">
-              <SlidersHorizontal size={14} />
-              <select className="select" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort">
-                <option value="featured">Featured</option>
-                <option value="price-asc">Price: Low to High</option>
-                <option value="price-desc">Price: High to Low</option>
-                <option value="name">Name: A–Z</option>
-              </select>
-            </div>
-            {hasFilters && <button className="btn btn-text btn-sm" onClick={clearAll}>Clear filters</button>}
-          </div>
+      </section>
+      <section className="section" style={{ paddingTop: 0 }}>
+        <div className="container">
+          <div className="pg-bar"><span>{t(`Showing ${products.length} parcel sizes`, `${products.length} அளவுகள்`)}</span></div>
+          <ParcelCards />
         </div>
-
-        <div className="catalog-meta">
-          <span>{filtered.length} product{filtered.length !== 1 ? "s" : ""}</span>
+      </section>
+      <section className="section-sm hs-beige">
+        <div className="container pg-more">
+          <Link to="/events" className="pg-more-card">
+            <span className="eyebrow">{t("Weddings, temples, festivals", "திருமணம், கோவில், பண்டிகை")}</span>
+            <h2 className="title-lg">{t("Event orders in bulk litres", "விழாக்களுக்கு மொத்த ஆர்டர்")}</h2>
+            <span className="text-link">{t("Plan an event order", "விழா ஆர்டர் செய்")} <ArrowRight size={15} /></span>
+          </Link>
+          <Link to="/subscriptions" className="pg-more-card">
+            <span className="eyebrow">{t("Every morning", "தினமும் காலையில்")}</span>
+            <h2 className="title-lg">{t("Daily subscription · 7, 15 or 30 days", "தினசரி சந்தா · 7, 15, 30 நாட்கள்")}</h2>
+            <span className="text-link">{t("Start a subscription", "சந்தா தொடங்கு")} <ArrowRight size={15} /></span>
+          </Link>
         </div>
-
-        {productsLoading ? (
-          <div className="empty-state" aria-busy="true"><PackageOpen size={48} /><h3>Loading the menu…</h3></div>
-        ) : productsError ? (
-          <div className="empty-state"><PackageOpen size={48} /><h3>We couldn't load the menu</h3><p>Please refresh the page in a moment.</p></div>
-        ) : filtered.length === 0 ? (
-          <div className="empty-state">
-            <PackageOpen size={48} />
-            <h3>No products found</h3>
-            <p>Try adjusting your filters or search term.</p>
-            <button className="btn btn-ghost" onClick={clearAll}>Clear all filters</button>
-          </div>
-        ) : (
-          <div className={`pgrid reveal-stagger ${r.inView ? "in" : ""}`} ref={r.ref as React.RefObject<HTMLDivElement>}>
-            {filtered.map((p, i) => <ProductCard key={p.id} product={p} index={i} />)}
-          </div>
-        )}
-      </div>
-      <style>{`
-        .catalog-toolbar { display: flex; flex-direction: column; gap: var(--sp-4); margin-bottom: var(--sp-6); }
-        .search-field { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--bg-elevated); max-width: 420px; }
-        .search-field input { flex: 1; background: none; border: none; color: var(--text); }
-        .search-field button { color: var(--text-dim); }
-        .catalog-controls { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
-        .filter-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: var(--font-sm); color: var(--text-muted); cursor: pointer; }
-        .filter-toggle input { width: 16px; height: 16px; accent-color: var(--accent-gold); }
-        .select-wrap { display: inline-flex; align-items: center; gap: 6px; }
-        .select-wrap .select { padding: var(--sp-2) var(--sp-4); padding-right: 32px; font-size: var(--font-sm); min-width: 180px; }
-        .catalog-meta { font-size: var(--font-sm); color: var(--text-dim); margin-bottom: var(--sp-6); }
-        .empty-state { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); padding: var(--sp-20); text-align: center; color: var(--text-dim); border: 1px dashed var(--border); border-radius: var(--radius-lg); }
-        .empty-state svg { color: var(--text-dim); opacity: 0.5; }
-        .empty-state h3 { color: var(--text); }
-      `}</style>
-    </section>
+      </section>
+    </>
   );
 }

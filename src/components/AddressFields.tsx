@@ -9,7 +9,7 @@ import { latLngFromMapsLink } from "@/api/branchStatus";
 export type AddressInput = Omit<Address, "id">;
 
 export const emptyAddress = (name = "", phone = ""): AddressInput => ({
-  label: "", name, phone, line1: "", line2: "", area: "", pincode: "", district: "Madurai", lat: null, lng: null,
+  label: "", name, phone, line1: "", line2: "", area: "", pincode: "", district: "Madurai", lat: null, lng: null, landmark: "", instructions: "",
 });
 
 /** Older saved addresses have no district or pin; fill the gaps so the form can edit them. */
@@ -73,10 +73,12 @@ export function AddressFields({ form, setForm, errors }: { form: AddressInput; s
     <>
       <div className="field-row">{field("label", "Label", { placeholder: "Home, Work…" })}{field("pincode", "Pincode", { placeholder: "625001", inputMode: "numeric" })}</div>
       <div className="field-row">{field("name", "Name")}{field("phone", "Phone", { inputMode: "tel" })}</div>
-      {field("line1", "Address line 1")}
+      {field("line1", "House number and street")}
       {field("line2", "Address line 2 (optional)")}
+      {field("landmark", "Nearby landmark (optional)", { placeholder: "e.g. opposite the temple" })}
       <div className="field-row">{field("area", "Area / locality", { placeholder: "e.g. KK Nagar" })}{field("district", "District")}</div>
 
+      {field("instructions", "Delivery instructions (optional)", { placeholder: "e.g. call before coming, 2nd floor" })}
       <div className="field addr-loc">
         <span className="label">Map location</span>
         <div className="addr-loc-row">

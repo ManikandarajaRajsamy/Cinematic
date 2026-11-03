@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Phone, Store, Truck, Users, Check, CalendarDays, ArrowRight, Minus, Plus, ReceiptText, Wallet, Clock, PhoneCall, PencilLine, Flame, BadgeIndianRupee } from "lucide-react";
 import { api, rupees, ApiError, type EventRequest } from "@/api/client";
 import { EVENT_PHONE, EVENT_RATE_PER_LITRE, EVENT_TERMS, EVENT_TYPES, SERVICE_OPTIONS, type ServiceOption } from "@/data/events";
@@ -15,9 +16,11 @@ function tomorrowIST() {
 }
 
 export function EventsPage() {
-  const [litres, setLitres] = useState(10);
-  const [service, setService] = useState<ServiceOption>("PICKUP");
-  const [form, setForm] = useState({ name: "", phone: "", event_type: EVENT_TYPES[0], event_date: "", event_time: "", venue: "", notes: "" });
+  // the homepage event planner hands over what was already chosen
+  const [params] = useSearchParams();
+  const [litres, setLitres] = useState(() => Math.max(1, Math.min(2000, Number(params.get("litres")) || 10)));
+  const [service, setService] = useState<ServiceOption>(() => SERVICE_OPTIONS.find((s) => s.id === params.get("service"))?.id ?? "PICKUP");
+  const [form, setForm] = useState({ name: "", phone: "", event_type: EVENT_TYPES.includes(params.get("type") ?? "") ? params.get("type")! : EVENT_TYPES[0], event_date: params.get("date") ?? "", event_time: "", venue: params.get("venue") ?? "", notes: "" });
   const [agree, setAgree] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
@@ -203,7 +206,7 @@ export function EventsPage() {
         .ev-book form { display: flex; flex-direction: column; }
         .ev-card-head { display: flex; gap: var(--sp-4); align-items: flex-start; margin-bottom: var(--sp-2); }
         .ev-card-head p { font-size: var(--font-sm); margin-top: 4px; }
-        .ev-step { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; font-family: var(--font-mono); font-size: 13px; color: #1d0c00; background: var(--accent-gold); }
+        .ev-step { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; font-family: var(--font-mono); font-size: 13px; color: #FFFFFF; background: var(--accent-gold); }
         .ev-qty { display: grid; grid-template-columns: 52px 1fr 52px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); overflow: hidden; }
         .ev-qty button { display: grid; place-items: center; background: var(--bg-glass-light); transition: background var(--t-fast); }
         .ev-qty button:hover { background: var(--accent-gold-glow); }
@@ -219,7 +222,7 @@ export function EventsPage() {
         .ev-option small { font-size: 13px; color: var(--text-muted); line-height: 1.4; }
         .ev-option em { font-style: normal; font-size: 11px; font-family: var(--font-mono); letter-spacing: 0.04em; color: var(--accent-gold-bright); margin-top: 4px; }
         .ev-option:hover { transform: translateY(-2px); }
-        .ev-option.on { border-color: var(--accent-gold); background: rgba(255, 122, 24, 0.08); box-shadow: 0 0 0 1px var(--accent-gold) inset; }
+        .ev-option.on { border-color: var(--accent-gold); background: rgba(0, 91, 79, 0.08); box-shadow: 0 0 0 1px var(--accent-gold) inset; }
         .ev-breakdown { border-top: 1px dashed var(--border-strong); padding-top: var(--sp-5); display: flex; flex-direction: column; gap: 10px; }
         .ev-breakdown > div { display: flex; justify-content: space-between; gap: 12px; font-size: var(--font-sm); }
         .ev-tbc span:last-child { color: var(--text-dim); font-style: italic; }

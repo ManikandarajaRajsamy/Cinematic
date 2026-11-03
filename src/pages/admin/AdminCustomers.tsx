@@ -86,7 +86,7 @@ export function AdminCustomers() {
           </div>
         )}
       </Modal>
-      <style>{`.adm-reminder { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border-bright); background: rgba(255, 122, 24, 0.08); font-size: var(--font-sm); } .adm-reminder svg { color: var(--accent-gold); flex-shrink: 0; margin-top: 2px; }`}</style>
+      <style>{`.adm-reminder { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border-bright); background: rgba(0, 91, 79, 0.08); font-size: var(--font-sm); } .adm-reminder svg { color: var(--accent-gold); flex-shrink: 0; margin-top: 2px; }`}</style>
     </>
   );
 }

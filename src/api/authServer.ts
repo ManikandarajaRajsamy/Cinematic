@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 export interface StoredAddress {
   id: string; label: string; name: string; phone: string; line1: string; line2?: string; area: string; pincode: string;
   district: string; lat: number | null; lng: number | null;
+  landmark?: string; instructions?: string;
 }
 export interface Customer {
   mobile: string; // 10 digits, the unique customer ID

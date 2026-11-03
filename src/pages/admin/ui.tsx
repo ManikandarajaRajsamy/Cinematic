@@ -85,7 +85,7 @@ export function AdminUiStyles() {
   return (
     <style>{`
       .dr-back { position: fixed; inset: 0; z-index: 200; background: rgba(0, 10, 8, 0.6); backdrop-filter: blur(4px); animation: dr-fade 250ms ease; }
-      .dr-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 100%; background: #00241F; border-left: 1px solid var(--border-strong); display: flex; flex-direction: column; animation: dr-slide 280ms cubic-bezier(0.22, 1, 0.36, 1); box-shadow: -20px 0 60px rgba(0,0,0,0.5); }
+      .dr-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 100%; background: var(--cream); border-left: 1px solid var(--border-strong); display: flex; flex-direction: column; animation: dr-slide 280ms cubic-bezier(0.22, 1, 0.36, 1); box-shadow: -20px 0 60px rgba(0,0,0,0.5); }
       .dr-panel header { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 1px solid var(--border); }
       .dr-panel header h3 { font-family: var(--font-display); font-size: 1.4rem; font-weight: 500; }
       .dr-panel header button { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--border-strong); }

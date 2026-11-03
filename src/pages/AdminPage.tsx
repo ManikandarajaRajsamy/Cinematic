@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BrandLogo } from "@/components/BrandLogo";
 import { RotateCcw, LogOut, ShieldCheck } from "lucide-react";
 import { useStore } from "@/store/store";
 import { api, adminSession, useApi } from "@/api/client";
@@ -34,7 +35,7 @@ function AdminGate({ onIn }: { onIn: () => void }) {
     catch (x) { setErr(errorsFrom(x).message); }
   };
   return (
-    <section className="section" style={{ paddingTop: "var(--sp-32)", minHeight: "80vh" }}>
+    <section className="section" style={{ paddingTop: "var(--sp-16)", minHeight: "80vh" }}>
       <form className="container-narrow card admin-form" style={{ maxWidth: 440, padding: 32 }} onSubmit={submit}>
         <span className="eyebrow"><ShieldCheck size={14} /> Admin</span>
         <h1 className="title-xl">Sign in</h1>
@@ -52,7 +53,25 @@ function AdminGate({ onIn }: { onIn: () => void }) {
 
 export function AdminPage() {
   const [signedIn, setSignedIn] = useState(() => !!adminSession.get());
-  return signedIn ? <Dashboard onOut={() => { adminSession.clear(); setSignedIn(false); }} /> : <AdminGate onIn={() => setSignedIn(true)} />;
+  // the admin workspace stands alone: no customer header, footer or links into the shop
+  return (
+    <div className="adm-shell">
+      <header className="adm-bar">
+        <div className="container adm-bar-in">
+          <BrandLogo size={44} />
+          <span className="adm-bar-tag"><ShieldCheck size={14} /> Admin</span>
+        </div>
+      </header>
+      {signedIn ? <Dashboard onOut={() => { adminSession.clear(); setSignedIn(false); }} /> : <AdminGate onIn={() => setSignedIn(true)} />}
+      <style>{`
+        .adm-shell { min-height: 100vh; min-height: 100svh; background: var(--bg); }
+        .adm-bar { position: sticky; top: 0; z-index: 50; background: var(--green-deep); color: var(--cream); }
+        .adm-bar-in { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-4); padding-block: 10px; }
+        .adm-bar .brand-l2 { color: var(--gold); }
+        .adm-bar-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); }
+      `}</style>
+    </div>
+  );
 }
 
 function Dashboard({ onOut }: { onOut: () => void }) {
@@ -64,7 +83,7 @@ function Dashboard({ onOut }: { onOut: () => void }) {
   const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
 
   return (
-    <section className="section" style={{ paddingTop: "var(--sp-32)" }}>
+    <section className="section" style={{ paddingTop: "var(--sp-12)" }}>
       <div className="container">
         <div className="admin-head">
           <div>
@@ -139,6 +158,8 @@ function Dashboard({ onOut }: { onOut: () => void }) {
         .stock-toggle.on { border-color: rgba(46, 156, 126,0.45); color: var(--accent-green-bright); }
         .stock-toggle.off { color: #e08c70; border-color: rgba(176,73,47,0.4); text-decoration: line-through; }
         .admin-actions { display: flex; gap: var(--sp-2); justify-content: flex-end; }
+        /* partner pickers sit in narrow table cells: keep the names readable */
+        .assign-select { width: auto; min-width: 200px; padding: 8px 36px 8px 12px; font-size: var(--font-sm); }
         .admin-empty { padding: var(--sp-12); text-align: center; color: var(--text-dim); }
         .admin-form { padding: var(--sp-6) var(--sp-8) var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-4); }
         .admin-variant-row { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: var(--sp-2); align-items: center; }

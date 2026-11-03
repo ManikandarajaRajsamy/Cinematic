@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import {
   User, MapPin, Package, Repeat, LogOut, Pencil, Plus, Trash2, Truck, ArrowRight, Settings,
 } from "lucide-react";
+import { ORDER_STATUS_LABEL, statusBadge } from "@/data/orderStatus";
 import { useStore, type Address, type DemoOrder } from "@/store/store";
 import { Modal } from "@/components/Modal";
 import { AddressFields, emptyAddress, toAddressInput, validateAddress, type AddressInput } from "@/components/AddressFields";
@@ -59,7 +60,11 @@ export function AccountPage() {
           <User size={56} style={{ opacity: 0.3 }} />
           <h1 className="display-3 mt-6">Sign in to view your account</h1>
           <p className="lead mt-4" style={{ marginInline: "auto" }}>Sign in with your mobile number and password to see your orders and saved addresses.</p>
-          <Link to="/login" className="btn btn-primary btn-lg mt-8">Sign in <ArrowRight size={18} /></Link>
+          <div className="flex gap-3 justify-center mt-8" style={{ flexWrap: "wrap" }}>
+            <Link to="/login" className="btn btn-primary btn-lg">Sign in <ArrowRight size={18} /></Link>
+            <Link to="/tracking" className="btn btn-ghost btn-lg">Track an order without signing in</Link>
+          </div>
+          <p className="mt-4" style={{ fontSize: "var(--font-sm)", color: "var(--text-dim)" }}>Ordered as a guest? Use your order ID and the mobile number you ordered with.</p>
         </div>
       </section>
     );
@@ -168,6 +173,13 @@ export function AccountPage() {
             {tab === "orders" && (
               <div className="acc-pane">
                 <h1 className="title-xl mb-8">Order history</h1>
+                {!state.user.loggedIn && state.orders[0] && (
+                  <div className="card acc-guest-track">
+                    <strong>Keep your order ID: {state.orders[0].number}</strong>
+                    <p>You ordered as a guest. To check this order from any phone, open <b>Track order</b> and enter the order ID with your mobile number {state.orders[0].customer.phone}.</p>
+                    <Link to={`/tracking/${state.orders[0].number}`} className="btn btn-primary btn-sm">Track this order <ArrowRight size={14} /></Link>
+                  </div>
+                )}
                 {claim.token && !state.user.loggedIn && (
                   <div className="acc-claim card">
                     <div>
@@ -194,7 +206,7 @@ export function AccountPage() {
                             <strong>{o.number}</strong>
                             <span>{new Date(o.placedAt).toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric" })}</span>
                           </div>
-                          <span className={`badge ${o.status === "delivered" ? "badge-success" : o.status === "cancelled" ? "badge-error" : "badge-gold"}`}>{o.status.replace(/_/g, " ")}</span>
+                          <span className={`badge ${statusBadge(o.status)}`}>{ORDER_STATUS_LABEL[o.status] ?? String(o.status).replace(/_/g, " ")}</span>
                         </div>
                         <div className="acc-order-items">
                           {o.items.slice(0, 3).map((it, i) => <span key={i}>{it.productName} × {it.qty}</span>)}
@@ -203,7 +215,7 @@ export function AccountPage() {
                         <div className="acc-order-foot">
                           <span className="price" style={{ fontSize: "1.1rem" }}>₹{o.total}</span>
                           <div className="flex gap-2">
-                            <Link to={`/tracking/${o.id}`} className="btn btn-ghost btn-sm" onClick={(e) => e.stopPropagation()}><Truck size={14} /> Track</Link>
+                            <Link to={`/tracking/${o.number}`} className="btn btn-ghost btn-sm" onClick={(e) => e.stopPropagation()}><Truck size={14} /> Track</Link>
                             <button className="btn btn-text btn-sm">Details <ArrowRight size={12} /></button>
                           </div>
                         </div>
@@ -277,14 +289,16 @@ export function AccountPage() {
       </Modal>
 
       <style>{`
-        .acc-claim { padding: var(--sp-5); margin-bottom: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3); border-color: var(--border-bright); background: linear-gradient(150deg, rgba(255, 122, 24, 0.1), rgba(0, 26, 22, 0.5)); }
+        .acc-guest-track { padding: var(--sp-5); margin-bottom: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-start; border-color: var(--accent-gold); }
+        .acc-guest-track p { font-size: var(--font-sm); }
+        .acc-claim { padding: var(--sp-5); margin-bottom: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3); border-color: var(--border-bright); background: linear-gradient(150deg, rgba(0, 91, 79, 0.1), #FFFFFF); }
         .acc-claim p { font-size: var(--font-sm); margin-top: 4px; }
         .acc-claim-row { display: flex; gap: 8px; flex-wrap: wrap; }
         .acc-claim-row .input { flex: 1 1 220px; }
         .acc-layout { display: grid; grid-template-columns: 260px 1fr; gap: var(--sp-8); align-items: start; }
         .acc-sidebar { position: sticky; top: calc(var(--nav-h) + 16px); }
         .acc-user { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-card); margin-bottom: var(--sp-4); }
-        .acc-avatar { width: 44px; height: 44px; border-radius: 50%; background: var(--accent-gold); color: var(--ink-950); display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 1.4rem; font-weight: 600; flex-shrink: 0; }
+        .acc-avatar { width: 44px; height: 44px; border-radius: 50%; background: var(--accent-gold); color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 1.4rem; font-weight: 600; flex-shrink: 0; }
         .acc-user div { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
         .acc-user span { font-size: var(--font-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .acc-nav { display: flex; flex-direction: column; gap: 2px; }

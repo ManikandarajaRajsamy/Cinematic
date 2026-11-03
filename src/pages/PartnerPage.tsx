@@ -1,25 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Bike, Phone, MessageCircle, Navigation, Package, Repeat, PartyPopper, MapPin, Clock, LogOut, Check, X, Undo2, AlertTriangle, Camera, Wallet, Lock, Eye, EyeOff,
-} from "lucide-react";
-import { ops, partnerSession, currentLocation, inr, type Job, type PartnerJobs, type PartnerView } from "@/api/ops";
+import { useCallback, useEffect, useState } from "react";
+import { Bike, Phone, Package, Repeat, PartyPopper, MapPin, Clock, LogOut, Check, Eye, EyeOff, Truck, RefreshCw, QrCode, ShieldCheck, Navigation } from "lucide-react";
+import { QrPayment, OtpDelivery, doorPaymentStyles } from "@/components/DoorPayment";
+import { ops, partnerSession, inr, type Job, type PartnerJobs, type PartnerPlan, type PartnerView } from "@/api/ops";
 import { ApiError } from "@/api/client";
-import { Modal } from "@/components/Modal";
-import { fileToDataUrl } from "@/pages/admin/shared";
+import { BrandLogo } from "@/components/BrandLogo";
 
-const TYPE: Record<Job["type"], { label: string; icon: typeof Package; cls: string }> = {
-  ORDER: { label: "Delivery order", icon: Package, cls: "t-order" },
-  SUBSCRIPTION: { label: "Subscription", icon: Repeat, cls: "t-sub" },
-  EVENT: { label: "Event order", icon: PartyPopper, cls: "t-event" },
+const TYPE: Record<Job["type"], { label: string; icon: typeof Package }> = {
+  ORDER: { label: "Home delivery", icon: Package },
+  SUBSCRIPTION: { label: "Subscription", icon: Repeat },
+  EVENT: { label: "Event order", icon: PartyPopper },
 };
-const FAIL_REASONS = ["Customer not available", "Wrong address", "Customer refused", "Other"];
-const SERVICE_LABEL: Record<string, string> = { PICKUP: "Pickup", DELIVERY: "Delivery", LIVE_COUNTER: "Live counter" };
 
-function PayTag({ j }: { j: Job }) {
-  return j.due > 0 ? <span className="dp-pay cod">{j.type === "EVENT" ? "BALANCE" : "COD"} {inr(j.due)}</span> : <span className="dp-pay paid">PAID ONLINE</span>;
+/** Slim bar in place of the site header: the partner app has no customer navigation. */
+function PartnerBar({ children }: { children?: React.ReactNode }) {
+  return (
+    <header className="dp-bar">
+      <div className="container dp-bar-in">
+        <BrandLogo size={44} />
+        <div className="admin-actions">{children}</div>
+      </div>
+    </header>
+  );
 }
 
-/* ---------------- sign in ---------------- */
+/* ---------------- sign in (same card as the admin sign-in) ---------------- */
 function PartnerLogin({ onIn }: { onIn: () => void }) {
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
@@ -34,36 +38,235 @@ function PartnerLogin({ onIn }: { onIn: () => void }) {
     finally { setBusy(false); }
   };
   return (
-    <div className="dp-login">
-      <form onSubmit={submit} className="dp-login-card" noValidate>
-        <img src="/brand/logo.png" alt="Sri Sastha Paruthipaal" />
-        <span className="dp-kicker"><Bike size={14} /> Delivery partner</span>
-        <h1>Sign in</h1>
-        <label className="dp-label" htmlFor="dp-mobile">Mobile number</label>
-        <div className="dp-field"><Phone size={18} /><span>+91</span><input id="dp-mobile" inputMode="numeric" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))} autoComplete="tel-national" /></div>
-        <label className="dp-label" htmlFor="dp-pass">Password</label>
-        <div className="dp-field"><Lock size={18} /><input id="dp-pass" type={show ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
-          <button type="button" onClick={() => setShow((s) => !s)} aria-label={show ? "Hide password" : "Show password"}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div>
-        {err && <p className="dp-err" role="alert">{err}</p>}
-        <button className="dp-btn primary" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
-        <p className="dp-fine">Accounts are created by the Super Admin. Forgot your password? Ask the shop.</p>
+    <section className="section" style={{ minHeight: "80vh" }}>
+      <form className="container-narrow card admin-form" style={{ maxWidth: 440, padding: 32 }} onSubmit={submit} noValidate>
+        <span className="eyebrow"><Bike size={14} /> Delivery partner</span>
+        <h1 className="title-xl">Sign in</h1>
+        <p style={{ color: "var(--text-dim)", fontSize: "var(--font-sm)" }}>Your account is created by the shop admin. Forgot your password? Ask the shop.</p>
+        <div className="field">
+          <label className="label" htmlFor="dp-mobile">Mobile number</label>
+          <input id="dp-mobile" className="input" inputMode="numeric" maxLength={10} placeholder="10-digit number" value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))} autoComplete="tel-national" />
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="dp-pass">Password</label>
+          <div className="dp-pass">
+            <input id="dp-pass" className="input" type={show ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+            <button type="button" onClick={() => setShow((s) => !s)} aria-label={show ? "Hide password" : "Show password"}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+          </div>
+          {err && <span className="field-error" role="alert">{err}</span>}
+        </div>
+        <button className="btn btn-primary btn-block" disabled={busy}>{busy ? "Signing in…" : "Continue"}</button>
       </form>
+    </section>
+  );
+}
+
+/* ---------------- one assigned delivery ---------------- */
+function Step({ done, label, at }: { done: boolean; label: string; at?: string }) {
+  return (
+    <li className={done ? "done" : ""}>
+      <span className="dp-dot">{done && <Check size={12} />}</span>
+      <span>{label}</span>
+      {at && <time>{new Date(at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}</time>}
+    </li>
+  );
+}
+
+function DeliveryCard({ j, busy, onAct, onPay, onOtp }: { j: Job; busy: boolean; onAct: (fn: () => Promise<unknown>, ok: string) => void; onPay: () => void; onOtp: () => void }) {
+  if (j.type === "SUBSCRIPTION") return <PlanDayCard j={j} busy={busy} onAct={onAct} onOtp={onOtp} />;
+  const T = TYPE[j.type];
+  const picked = j.status === "PICKED" || j.status === "OUT" || j.status === "DELIVERED";
+  const needsPay = j.due > 0;
+  const paid = !needsPay || !!j.paid_at;
+  const delivered = j.status === "DELIVERED" || j.status === "CANCELLED" || !!(j as { reassigned?: boolean }).reassigned;
+  const closed = j.status === "CANCELLED" ? "Cancelled" : (j as { reassigned?: boolean }).reassigned ? "Reassigned" : null;
+  return (
+    <article className="card dp-card">
+      <div className="dp-card-top">
+        <span className="badge"><T.icon size={12} /> {T.label}</span>
+        <span className={`badge ${closed ? "badge-error" : delivered ? "badge-success" : picked ? "badge-gold" : "badge-saffron"}`}>{closed ?? (delivered ? "Delivered" : picked ? "Picked up" : "Assigned")}</span>
+      </div>
+      <div>
+        <span className="dp-ref">Order {j.ref.split("#")[0]}</span>
+        <h3 className="title-md">{j.customer.name}</h3>
+      </div>
+      {!delivered && (
+        <dl className="dp-kv">
+          {j.customer.mobile && <div><dt><Phone size={14} /></dt><dd><a href={`tel:${j.customer.mobile}`}>{j.customer.mobile}</a></dd></div>}
+          {j.address && <div><dt><MapPin size={14} /></dt><dd>{j.address}{j.landmark && <><br /><small>Landmark: {j.landmark}</small></>}</dd></div>}
+          <div><dt><Clock size={14} /></dt><dd>{new Date(j.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })} · {j.slot}</dd></div>
+          <div><dt><Package size={14} /></dt><dd>{j.items.join(", ")}</dd></div>
+        </dl>
+      )}
+      {j.notes && !delivered && <p className="dp-note"><b>Instructions:</b> {j.notes}</p>}
+      {!delivered && j.status !== "CANCELLED" && <CustomerActions j={j} />}
+      <div className="dp-money">
+        <div><span className="label">Total</span><strong>{inr(needsPay ? j.due : j.amount)}</strong></div>
+        <div className="dp-money-r">
+          <span className={`badge ${paid ? "badge-success" : "badge-saffron"}`}>{paid ? "Paid" : "Payment pending"}</span>
+          <small>{!needsPay ? "Paid online" : j.paid_at ? "UPI QR · verified" : "Pay on delivery"}</small>
+        </div>
+      </div>
+
+      <ol className="dp-steps">
+        <Step done={picked} label="Pickup confirmed" at={j.picked_at} />
+        {needsPay && <Step done={!!j.paid_at} label="Payment verified" at={j.paid_at} />}
+        {j.type === "ORDER" && <Step done={j.otp_status === "VERIFIED"} label="OTP verified" at={j.otp_verified_at} />}
+        <Step done={delivered} label="Delivery confirmed" at={j.delivered_at} />
+      </ol>
+
+      {!delivered && (
+        <div className="dp-actions">
+          {!picked && <button className="btn btn-primary btn-block" disabled={busy} onClick={() => onAct(() => ops.confirmPickup(j.id), "Pickup confirmed · OTP sent to the customer")}><Package size={16} /> Confirm pickup</button>}
+          {picked && !paid && <>
+            <button className="btn btn-primary btn-block" disabled={busy} onClick={onPay}><QrCode size={16} /> Collect payment</button>
+            <p className="dp-lock">OTP verification becomes available after the payment is verified.</p>
+          </>}
+          {picked && paid && (j.type === "ORDER"
+            ? <button className="btn btn-primary btn-block" disabled={busy} onClick={onOtp}><ShieldCheck size={16} /> {j.otp_status === "LOCKED" ? "Retry OTP" : "Verify OTP & complete delivery"}</button>
+            : <button className="btn btn-primary btn-block" disabled={busy} onClick={() => onAct(() => ops.completeDelivery(j.id, ""), "Delivery confirmed")}><Truck size={16} /> Confirm delivery</button>)}
+        </div>
+      )}
+      {delivered && (closed
+        ? <p className="dp-lock" style={{ textAlign: "left" }}>{closed === "Cancelled" ? "The shop cancelled this order." : "The shop moved this order to another partner."}</p>
+        : <dl className="dp-hist">
+            <div><dt>Delivered</dt><dd>{j.delivered_at ? new Date(j.delivered_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "—"}</dd></div>
+            <div><dt>Payment</dt><dd>{j.due > 0 ? (j.paid_at ? `Collected by UPI QR · ${inr(j.due)}` : "Not collected") : "Paid online"}</dd></div>
+            {j.type === "ORDER" && <div><dt>OTP</dt><dd>{j.otp_status === "VERIFIED" ? "Verified" : "—"}</dd></div>}
+          </dl>)}
+    </article>
+  );
+}
+
+/**
+ * Call the customer, or open turn-by-turn directions from the partner's current position. Google Maps uses the
+ * map pin when there is one and the written address otherwise; "Other map app" opens the phone's default map app.
+ * The partner's location is only used by the map app they open; it is never tracked or sent anywhere.
+ */
+function CustomerActions({ j }: { j: Job }) {
+  const [map, setMap] = useState(false);
+  const hasPin = j.lat != null && j.lng != null;
+  const dest = hasPin ? `${j.lat},${j.lng}` : [j.address, j.landmark].filter(Boolean).join(", ");
+  if (!dest && !j.customer.mobile) return null;
+  const google = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}&travelmode=driving&dir_action=navigate`;
+  const other = hasPin ? `geo:${j.lat},${j.lng}?q=${j.lat},${j.lng}(${encodeURIComponent(j.customer.name)})` : `geo:0,0?q=${encodeURIComponent(dest)}`;
+  return (
+    <div className="dp-go">
+      <div className="dp-go-row">
+        {j.customer.mobile && <a className="btn btn-ghost" href={`tel:${j.customer.mobile}`}><Phone size={15} /> Call customer</a>}
+        {dest && <a className="btn btn-primary" href={google} target="_blank" rel="noreferrer"><Navigation size={15} /> Navigate to customer</a>}
+      </div>
+      {dest && (
+        <div className="dp-go-more">
+          <a href={other}>Other map app</a>
+          {hasPin && <button type="button" onClick={() => setMap((m) => !m)}>{map ? "Hide map" : "Show on map"}</button>}
+          {!hasPin && <span>No map pin: directions use the address</span>}
+        </div>
+      )}
+      {map && hasPin && <iframe className="dp-map" title={`Map: ${j.customer.name}`} loading="lazy" src={`https://maps.google.com/maps?q=${j.lat},${j.lng}&z=16&output=embed`} />}
+    </div>
+  );
+}
+
+const SKIP_REASONS = ["Customer not available", "Customer asked to skip today", "House locked", "Other"];
+
+/** One plan day: prepaid, no QR and no OTP. Mark it delivered, or skip it; a skipped day moves to the end of the plan. */
+/** One plan day: prepaid, so no QR. Pickup, then the customer's OTP for that day confirms the delivery; or skip the day. */
+function PlanDayCard({ j, busy, onAct, onOtp }: { j: Job; busy: boolean; onAct: (fn: () => Promise<unknown>, ok: string) => void; onOtp: () => void }) {
+  const [skipping, setSkipping] = useState(false);
+  const [reason, setReason] = useState(SKIP_REASONS[0]);
+  const moved = !!(j as { reassigned?: boolean }).reassigned;
+  const done = j.status === "DELIVERED" || j.status === "FAILED" || j.status === "CANCELLED" || moved;
+  return (
+    <article className="card dp-card">
+      <div className="dp-card-top">
+        <span className="badge"><Repeat size={12} /> Subscription{j.sub_info && ` · day ${j.sub_info.day_no} of ${j.sub_info.plan_days}`}</span>
+        <span className={`badge ${j.status === "DELIVERED" ? "badge-success" : j.status === "FAILED" ? "badge-error" : "badge-saffron"}`}>{moved ? "Reassigned" : j.status === "DELIVERED" ? "Delivered" : j.status === "FAILED" ? "Skipped" : j.status === "CANCELLED" ? "Cancelled" : "To deliver"}</span>
+      </div>
+      <div>
+        <span className="dp-ref">Plan {j.ref.split("#")[0]}</span>
+        <h3 className="title-md">{j.customer.name}</h3>
+      </div>
+      {!done && (
+        <dl className="dp-kv">
+          {j.customer.mobile && <div><dt><Phone size={14} /></dt><dd><a href={`tel:${j.customer.mobile}`}>{j.customer.mobile}</a></dd></div>}
+          {j.address && <div><dt><MapPin size={14} /></dt><dd>{j.address}{j.landmark && <><br /><small>Landmark: {j.landmark}</small></>}</dd></div>}
+          <div><dt><Clock size={14} /></dt><dd>Today · {j.slot}</dd></div>
+          <div><dt><Package size={14} /></dt><dd>{j.items.join(", ")}</dd></div>
+        </dl>
+      )}
+      {j.notes && !done && <p className="dp-note"><b>Instructions:</b> {j.notes}</p>}
+      {!done && <CustomerActions j={j} />}
+      <p className="dp-pay"><Check size={14} /> Plan paid online · nothing to collect</p>
+      {!done && (
+        <ol className="dp-steps">
+          <Step done={j.status === "PICKED" || j.status === "OUT"} label="Pickup confirmed" at={j.picked_at} />
+          <Step done={false} label="OTP verified" />
+          <Step done={false} label="Delivery confirmed" />
+        </ol>
+      )}
+      {j.status === "DELIVERED" && <p className="dp-lock" style={{ textAlign: "left" }}>Delivered {j.delivered_at && new Date(j.delivered_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}{j.otp_status === "VERIFIED" && " · OTP verified"}</p>}
+      {j.status === "FAILED" && <p className="dp-lock" style={{ textAlign: "left" }}>Skipped: {j.fail_reason}. This day is added to the end of the plan.</p>}
+      {!done && (skipping ? (
+        <div className="dp-skip">
+          <label className="label" htmlFor={`sk-${j.id}`}>Why is today skipped?</label>
+          <select id={`sk-${j.id}`} className="select" value={reason} onChange={(e) => setReason(e.target.value)}>{SKIP_REASONS.map((r) => <option key={r}>{r}</option>)}</select>
+          <div className="dp-actions">
+            <button className="btn btn-ghost" onClick={() => setSkipping(false)}>Back</button>
+            <button className="btn btn-primary" disabled={busy} onClick={() => onAct(() => ops.skipPlanDay(j.id, reason), "Day skipped · added to the end of the plan")}>Skip today</button>
+          </div>
+        </div>
+      ) : (
+        <div className="dp-actions">
+          {j.status === "ASSIGNED"
+            ? <button className="btn btn-primary btn-block" disabled={busy} onClick={() => onAct(() => ops.confirmPickup(j.id), "Pickup confirmed · OTP sent to the customer")}><Package size={16} /> Confirm pickup</button>
+            : <button className="btn btn-primary btn-block" disabled={busy} onClick={onOtp}><ShieldCheck size={16} /> {j.otp_status === "LOCKED" ? "Retry OTP" : "Verify OTP & confirm delivery"}</button>}
+          <button className="btn btn-ghost btn-block" disabled={busy} onClick={() => setSkipping(true)}>Customer not available · skip today</button>
+        </div>
+      ))}
+    </article>
+  );
+}
+
+/** The partner's subscription customers: every plan day of these is theirs. */
+function PlanList({ plans }: { plans: PartnerPlan[] }) {
+  const day = (d: string | null) => (d ? new Date(d + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : "—");
+  if (!plans.length) return <div className="card admin-empty">No subscriptions are assigned to you. The shop assigns plans here.</div>;
+  return (
+    <div className="dp-grid">
+      {plans.map((p) => (
+        <article className="card dp-card" key={p.id}>
+          <div className="dp-card-top">
+            <span className="badge"><Repeat size={12} /> {p.item}</span>
+            <span className={`badge ${p.status === "ACTIVE" ? "badge-success" : "badge-saffron"}`}>{p.status === "ACTIVE" ? "Active" : "Paused"}</span>
+          </div>
+          <div><span className="dp-ref">Plan {p.ref}</span><h3 className="title-md">{p.customer}</h3></div>
+          <dl className="dp-kv">
+            <div><dt><Phone size={14} /></dt><dd><a href={`tel:${p.mobile}`}>{p.mobile}</a></dd></div>
+            {p.address && <div><dt><MapPin size={14} /></dt><dd>{p.address}</dd></div>}
+            <div><dt><Clock size={14} /></dt><dd>Next delivery: <strong>{day(p.next_date)}</strong>{p.today === "DELIVERED" && " · today done"}{p.today === "FAILED" && " · today skipped"}</dd></div>
+          </dl>
+          <p className="dp-lock" style={{ textAlign: "left" }}>{day(p.start_date)} → {day(p.end_date)} · {p.delivered} delivered · {p.remaining} remaining</p>
+        </article>
+      ))}
     </div>
   );
 }
 
 /* ---------------- app ---------------- */
+/**
+ * The delivery partner's restricted app, laid out like the admin workspace. It shows only the deliveries the
+ * admin assigned to this partner and offers only pickup, payment and delivery confirmation; the API enforces the same.
+ */
 export function PartnerPage() {
   const [signedIn, setSignedIn] = useState(() => !!partnerSession.get());
   const [me, setMe] = useState<{ partner: PartnerView; branch: string } | null>(null);
   const [data, setData] = useState<PartnerJobs | null>(null);
-  const [tab, setTab] = useState<"available" | "mine" | "history">("available");
+  const [tab, setTab] = useState<"mine" | "plans" | "history">("mine");
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [filter, setFilter] = useState({ type: "ALL", area: "ALL", slot: "ALL", sort: "slot" as "slot" | "distance" });
-  const [collectFor, setCollectFor] = useState<Job | null>(null);
-  const [releaseFor, setReleaseFor] = useState<Job | null>(null);
-  const [failFor, setFailFor] = useState<Job | null>(null);
+  const [payFor, setPayFor] = useState<Job | null>(null);
+  const [otpFor, setOtpFor] = useState<Job | null>(null);
 
   const say = (text: string, kind: "ok" | "err" = "ok") => { setToast({ text, kind }); window.setTimeout(() => setToast(null), 3000); };
   const signOut = () => { partnerSession.clear(); setSignedIn(false); setMe(null); setData(null); };
@@ -76,7 +279,7 @@ export function PartnerPage() {
     if (!signedIn) return;
     ops.partnerMe().then((r) => setMe({ partner: r.partner, branch: r.branch })).catch(() => signOut());
     refresh();
-    // other partners' picks show up quickly: poll, plus instant updates from other tabs on this device
+    // new assignments from the admin show up without a reload
     const t = window.setInterval(refresh, 15_000);
     const on = () => refresh();
     window.addEventListener("ssp-db-changed", on);
@@ -85,372 +288,120 @@ export function PartnerPage() {
 
   const act = async (j: Job, fn: () => Promise<unknown>, okText: string) => {
     setBusyId(j.id);
-    try { await fn(); say(okText); await refresh(); return true; }
-    catch (x) { say(x instanceof ApiError ? x.message : "Something went wrong", "err"); await refresh(); return false; }
-    finally { setBusyId(null); }
+    try { await fn(); say(okText); }
+    catch (x) { say(x instanceof ApiError ? x.message : "Something went wrong", "err"); }
+    finally { setBusyId(null); await refresh(); }
   };
 
-  const available = useMemo(() => {
-    let list = data?.available ?? [];
-    if (filter.type !== "ALL") list = list.filter((j) => j.type === filter.type);
-    if (filter.area !== "ALL") list = list.filter((j) => j.area === filter.area);
-    if (filter.slot !== "ALL") list = list.filter((j) => j.slot === filter.slot);
-    return [...list].sort((a, b) => filter.sort === "distance" ? (a.distance_km ?? 99) - (b.distance_km ?? 99) : a.slot_start.localeCompare(b.slot_start));
-  }, [data, filter]);
-  const areas = [...new Set((data?.available ?? []).map((j) => j.area).filter(Boolean))];
-  const slots = [...new Set((data?.available ?? []).map((j) => j.slot))];
+  if (!signedIn) return <div className="dp"><PartnerBar /><PartnerLogin onIn={() => setSignedIn(true)} /><PartnerStyles /></div>;
 
-  if (!signedIn) return <><PartnerLogin onIn={() => setSignedIn(true)} /><DpStyles /></>;
-
-  const s = data?.summary;
-  const online = data?.online ?? me?.partner.online ?? false;
+  // today's plan days first: they are due in the morning slot
+  const list = tab === "mine" ? [...(data?.mine ?? [])].sort((a, b) => Number(b.type === "SUBSCRIPTION") - Number(a.type === "SUBSCRIPTION")) : [...(data?.history ?? [])].reverse();
   return (
     <div className="dp">
-      <header className="dp-top">
-        <div className="dp-who">
-          <img src="/brand/logo.png" alt="" />
-          <div><strong>{me?.partner.name ?? "…"}</strong><span>{me?.branch}{me?.partner.vehicle && ` · ${me.partner.vehicle}`}</span></div>
-          <button className="dp-icon" onClick={signOut} aria-label="Sign out"><LogOut size={20} /></button>
+      <PartnerBar>
+        <button className="btn btn-ghost btn-sm" onClick={refresh}><RefreshCw size={14} /> Refresh</button>
+        <button className="btn btn-ghost btn-sm" onClick={signOut}><LogOut size={14} /> Sign out</button>
+      </PartnerBar>
+      <section className="section dp-main">
+        <div className="container">
+          <div className="admin-head">
+            <div>
+              <span className="eyebrow"><Bike size={14} /> Delivery partner</span>
+              <h1 className="display-3">My deliveries</h1>
+              <p style={{ fontSize: "var(--font-sm)", color: "var(--text-dim)", marginTop: 8 }}>
+                Signed in as {me?.partner.name ?? "…"}{me?.branch && ` · ${me.branch}`}.
+              </p>
+            </div>
+          </div>
+
+          <div className="admin-stats mt-8">
+            <div className="card admin-stat"><span className="label">To deliver</span><strong>{data?.mine.length ?? "—"}</strong></div>
+            <div className="card admin-stat"><span className="label">Picked up today</span><strong>{data?.summary.picked ?? "—"}</strong></div>
+            <div className="card admin-stat"><span className="label">Delivered today</span><strong>{data?.summary.delivered ?? "—"}</strong></div>
+            <div className="card admin-stat"><span className="label">Cash to hand over</span><strong>{data ? inr(data.summary.cash_to_hand_over) : "—"}</strong></div>
+          </div>
+
+          <div className="tabs mt-8" role="tablist">
+            <button role="tab" aria-selected={tab === "mine"} className={`tab ${tab === "mine" ? "active" : ""}`} onClick={() => setTab("mine")}>Assigned to me{data ? ` (${data.mine.length})` : ""}</button>
+            <button role="tab" aria-selected={tab === "plans"} className={`tab ${tab === "plans" ? "active" : ""}`} onClick={() => setTab("plans")}>My subscriptions{data ? ` (${data.plans.length})` : ""}</button>
+            <button role="tab" aria-selected={tab === "history"} className={`tab ${tab === "history" ? "active" : ""}`} onClick={() => setTab("history")}>Order history{data ? ` (${data.history.length})` : ""}</button>
+          </div>
+
+          <div className="mt-8">
+            {tab === "plans" && data ? <PlanList plans={data.plans} />
+              : !data ? <div className="skeleton" style={{ height: 220 }} />
+              : list.length === 0 ? <div className="card admin-empty">{tab === "mine" ? "No deliveries assigned to you right now. The shop will assign orders here." : "No completed deliveries yet."}</div>
+              : <div className="dp-grid">{list.map((j) => <DeliveryCard key={j.id} j={j} busy={busyId === j.id} onAct={(fn, ok) => act(j, fn, ok)} onPay={() => setPayFor(j)} onOtp={() => setOtpFor(j)} />)}</div>}
+          </div>
         </div>
-        <button className={`dp-online ${online ? "on" : ""}`} role="switch" aria-checked={online}
-          onClick={async () => { await ops.partnerOnline(!online); await refresh(); say(online ? "You're offline" : "You're online"); }}>
-          <span className="dp-knob" /> {online ? "Online — taking orders" : "Offline — tap to go online"}
-        </button>
-        <div className="dp-chips">
-          <span><b>{s?.picked ?? 0}</b> Picked</span>
-          <span><b>{s?.delivered ?? 0}</b> Delivered</span>
-          <span><b>{inr(s?.cash_today ?? 0)}</b> Cash today</span>
-        </div>
-        <div className="dp-cash"><Wallet size={18} /> Cash to hand over <strong>{inr(s?.cash_to_hand_over ?? 0)}</strong></div>
-      </header>
-
-      <nav className="dp-tabs" role="tablist">
-        {(["available", "mine", "history"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-            {t === "available" ? `Available (${data?.available.length ?? 0})` : t === "mine" ? `My orders (${data?.mine.length ?? 0})` : "History"}
-          </button>
-        ))}
-      </nav>
-
-      <main className="dp-body">
-        {!data && <div className="dp-skel" aria-busy="true"><div /><div /><div /></div>}
-
-        {data && tab === "available" && (
-          <>
-            {!online && <div className="dp-empty">You're offline. Go online to see and pick orders.</div>}
-            {online && (
-              <div className="dp-filters">
-                <select aria-label="Type" value={filter.type} onChange={(e) => setFilter({ ...filter, type: e.target.value })}>
-                  <option value="ALL">All types</option><option value="ORDER">Delivery orders</option><option value="SUBSCRIPTION">Subscriptions</option><option value="EVENT">Event orders</option>
-                </select>
-                <select aria-label="Area" value={filter.area} onChange={(e) => setFilter({ ...filter, area: e.target.value })}>
-                  <option value="ALL">All areas</option>{areas.map((a) => <option key={a}>{a}</option>)}
-                </select>
-                <select aria-label="Time slot" value={filter.slot} onChange={(e) => setFilter({ ...filter, slot: e.target.value })}>
-                  <option value="ALL">All slots</option>{slots.map((a) => <option key={a}>{a}</option>)}
-                </select>
-                <select aria-label="Sort" value={filter.sort} onChange={(e) => setFilter({ ...filter, sort: e.target.value as "slot" | "distance" })}>
-                  <option value="slot">Sort: time slot</option><option value="distance">Sort: distance</option>
-                </select>
-              </div>
-            )}
-            {online && available.length === 0 && <div className="dp-empty">No orders waiting right now. New ones appear here automatically.</div>}
-            {online && available.map((j) => {
-              const T = TYPE[j.type];
-              return (
-                <article className="dp-card" key={j.id}>
-                  <div className="dp-card-top"><span className={`dp-type ${T.cls}`}><T.icon size={14} /> {T.label}</span><span className="dp-ref">{j.ref.split("#")[0]}</span></div>
-                  <div className="dp-meta">
-                    <span><MapPin size={15} /> {j.area || "—"}</span>
-                    {j.distance_km != null && <span>{j.distance_km.toFixed(1)} km by road</span>}
-                    <span><Clock size={15} /> {j.slot}</span>
-                  </div>
-                  <ul className="dp-items">{j.items.map((i) => <li key={i}>{i}</li>)}</ul>
-                  <div className="dp-card-foot"><PayTag j={j} />{j.amount > 0 && <span className="dp-amt">Order {inr(j.amount)}</span>}</div>
-                  <button className="dp-btn primary" disabled={busyId === j.id}
-                    onClick={async () => { if (await act(j, () => ops.pick(j.id), "Picked — it's in My orders")) setTab("mine"); }}>
-                    {busyId === j.id ? "Picking…" : "Pick this order"}
-                  </button>
-                </article>
-              );
-            })}
-          </>
-        )}
-
-        {data && tab === "mine" && (
-          <>
-            {data.mine.length === 0 && <div className="dp-empty">You have no orders right now. Pick one from Available.</div>}
-            {data.mine.map((j) => {
-              const T = TYPE[j.type];
-              const maps = j.lat != null && j.lng != null
-                ? `https://www.google.com/maps/dir/?api=1&destination=${j.lat},${j.lng}`
-                : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(j.address)}`;
-              return (
-                <article className="dp-card mine" key={j.id}>
-                  <div className="dp-card-top"><span className={`dp-type ${T.cls}`}><T.icon size={14} /> {T.label}</span><span className="dp-ref">{j.ref.split("#")[0]}</span></div>
-                  <h3 className="dp-cust">{j.customer.name}</h3>
-                  <div className="dp-contact">
-                    <a className="dp-btn ghost" href={`tel:+91${j.customer.mobile}`}><Phone size={18} /> Call</a>
-                    <a className="dp-btn ghost" href={`https://wa.me/91${j.customer.mobile}`} target="_blank" rel="noreferrer"><MessageCircle size={18} /> WhatsApp</a>
-                  </div>
-                  <p className="dp-addr"><MapPin size={16} /> {j.address}</p>
-                  {j.landmark && <p className="dp-note">Landmark: {j.landmark}</p>}
-                  <a className="dp-btn ghost wide" href={maps} target="_blank" rel="noreferrer"
-                    onClick={() => { if (j.status === "PICKED") ops.start(j.id).then(refresh).catch(() => {}); }}><Navigation size={18} /> Navigate</a>
-                  <ul className="dp-items">{j.items.map((i) => <li key={i}>{i}</li>)}</ul>
-                  {j.notes && <p className="dp-note">Note: {j.notes}</p>}
-                  {j.sub_info && <p className="dp-note strong">Day {j.sub_info.day_no} of {j.sub_info.plan_days}</p>}
-                  {j.event_info && (
-                    <dl className="dp-event">
-                      <div><dt>Occasion</dt><dd>{j.event_info.occasion}</dd></div>
-                      <div><dt>Serving</dt><dd>{SERVICE_LABEL[j.event_info.service] ?? j.event_info.service} · {j.event_info.litres} L</dd></div>
-                      <div><dt>Time</dt><dd>{j.event_info.time}</dd></div>
-                      <div><dt>Venue</dt><dd>{j.event_info.venue}</dd></div>
-                      <div><dt>Advance paid</dt><dd>{inr(j.event_info.advance)}</dd></div>
-                      <div><dt>Balance to collect</dt><dd className="cod">{inr(j.event_info.balance)}</dd></div>
-                    </dl>
-                  )}
-                  <div className="dp-card-foot"><PayTag j={j} />{j.status === "OUT" && <span className="dp-amt">Out for delivery</span>}</div>
-                  {j.status === "PICKED" && <button className="dp-btn ghost wide" disabled={busyId === j.id} onClick={() => act(j, () => ops.start(j.id), "Out for delivery")}><Bike size={18} /> Start delivery</button>}
-                  {j.due > 0
-                    ? <button className="dp-btn primary" onClick={() => setCollectFor(j)}><Wallet size={18} /> Amount collected &amp; delivered</button>
-                    : <button className="dp-btn primary" disabled={busyId === j.id} onClick={async () => act(j, async () => ops.deliver(j.id, { location: await currentLocation() }), "Marked as delivered")}><Check size={18} /> Mark as delivered</button>}
-                  <div className="dp-row2">
-                    <button className="dp-btn ghost" onClick={() => setReleaseFor(j)}><Undo2 size={16} /> Release order</button>
-                    <button className="dp-btn danger" onClick={() => setFailFor(j)}><AlertTriangle size={16} /> Delivery failed</button>
-                  </div>
-                </article>
-              );
-            })}
-          </>
-        )}
-
-        {data && tab === "history" && <History jobs={data.history} />}
-      </main>
-
-      {collectFor && <CollectSheet job={collectFor} onClose={() => setCollectFor(null)} onDone={async (p) => {
-        const ok = await act(collectFor, async () => ops.deliver(collectFor.id, { ...p, location: await currentLocation() }), "Amount collected & delivered");
-        if (ok) setCollectFor(null);
-      }} />}
-      {releaseFor && <ReasonSheet title="Release order" options={["Vehicle problem", "Too far for me", "Customer asked to reschedule", "Other"]} cta="Release order"
-        onClose={() => setReleaseFor(null)} onDone={async (reason) => { if (await act(releaseFor, () => ops.release(releaseFor.id, reason), "Released — back in Available")) setReleaseFor(null); }} />}
-      {failFor && <ReasonSheet title="Delivery failed" options={FAIL_REASONS} cta="Mark as failed" photo
-        note={failFor.type === "SUBSCRIPTION" ? "For a daily plan, this day is served later: the plan ends one day later." : undefined}
-        onClose={() => setFailFor(null)} onDone={async (reason, photo) => { if (await act(failFor, async () => ops.fail(failFor.id, { reason, photo, location: await currentLocation() }), "Marked as failed")) setFailFor(null); }} />}
-
-      {toast && <div className={`dp-toast ${toast.kind}`} role="status">{toast.text}</div>}
-      <DpStyles />
+      </section>
+      {payFor && <QrPayment job={payFor} onClose={() => { setPayFor(null); refresh(); }}
+        onPaid={async () => { const paidJob = payFor; setPayFor(null); await refresh(); say("Payment verified"); if (paidJob.type === "ORDER") setOtpFor(paidJob); }} />}
+      {otpFor && <OtpDelivery job={otpFor} onClose={() => { setOtpFor(null); refresh(); }} onDone={() => { setOtpFor(null); refresh(); say("Delivery confirmed"); }} />}
+      {toast && <div className="toast-wrap"><div className={`toast ${toast.kind === "err" ? "error" : "success"}`} role="status">{toast.text}</div></div>}
+      <PartnerStyles />
     </div>
   );
 }
 
-function CollectSheet({ job, onClose, onDone }: { job: Job; onClose: () => void; onDone: (p: { method: "CASH" | "UPI"; amount: number; reason?: string }) => void }) {
-  const [method, setMethod] = useState<"CASH" | "UPI" | null>(null);
-  const [amount, setAmount] = useState(String(job.due / 100));
-  const [reason, setReason] = useState("");
-  const [err, setErr] = useState("");
-  const paise = Math.round(Number(amount) * 100);
-  const differs = Number.isFinite(paise) && paise !== job.due;
-  const confirm = () => {
-    if (!method) { setErr("Choose Cash or UPI."); return; }
-    if (!(paise >= 0)) { setErr("Enter the amount received."); return; }
-    if (differs && !reason.trim()) { setErr("The amount is different from the amount due. Give a reason."); return; }
-    onDone({ method, amount: paise, reason: differs ? reason.trim() : undefined });
-  };
-  return (
-    <Modal open onClose={onClose} title="Collect payment" maxWidth={460}>
-      <div className="dp-sheet">
-        <div className="dp-due"><span>Amount due</span><strong>{inr(job.due)}</strong></div>
-        <div className="dp-seg" role="radiogroup" aria-label="Payment method">
-          {(["CASH", "UPI"] as const).map((m) => <button key={m} role="radio" aria-checked={method === m} className={method === m ? "on" : ""} onClick={() => { setMethod(m); setErr(""); }}>{m === "CASH" ? "Cash" : "UPI"}</button>)}
-        </div>
-        <label className="dp-label" htmlFor="dp-amount">Amount received (₹)</label>
-        <input id="dp-amount" className="dp-input big" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        {differs && (<>
-          <label className="dp-label" htmlFor="dp-reason">Why is it different?</label>
-          <input id="dp-reason" className="dp-input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. customer paid ₹50 less, will pay tomorrow" />
-        </>)}
-        {err && <p className="dp-err">{err}</p>}
-        <button className="dp-btn primary" onClick={confirm}><Check size={18} /> Confirm &amp; mark delivered</button>
-      </div>
-    </Modal>
-  );
-}
-
-function ReasonSheet({ title, options, cta, photo, note, onClose, onDone }: { title: string; options: string[]; cta: string; photo?: boolean; note?: string; onClose: () => void; onDone: (reason: string, photo?: string) => void }) {
-  const [choice, setChoice] = useState("");
-  const [other, setOther] = useState("");
-  const [img, setImg] = useState<string | undefined>();
-  const [err, setErr] = useState("");
-  const reason = choice === "Other" ? other.trim() : choice;
-  return (
-    <Modal open onClose={onClose} title={title} maxWidth={460}>
-      <div className="dp-sheet">
-        <div className="dp-reasons" role="radiogroup">
-          {options.map((o) => <button key={o} role="radio" aria-checked={choice === o} className={choice === o ? "on" : ""} onClick={() => { setChoice(o); setErr(""); }}>{o}</button>)}
-        </div>
-        {choice === "Other" && <input className="dp-input" aria-label="Reason" placeholder="Describe the reason" value={other} onChange={(e) => setOther(e.target.value)} />}
-        {photo && (
-          <label className="dp-btn ghost wide dp-photo">
-            <Camera size={18} /> {img ? "Photo added — change" : "Add a photo (optional)"}
-            <input type="file" accept="image/*" capture="environment" hidden onChange={async (e) => { const f = e.target.files?.[0]; if (f) setImg(await fileToDataUrl(f, 800)); }} />
-          </label>
-        )}
-        {img && <img src={img} alt="" className="dp-photo-prev" />}
-        {note && <p className="dp-fine">{note}</p>}
-        {err && <p className="dp-err">{err}</p>}
-        <button className="dp-btn primary" onClick={() => (reason ? onDone(reason, img) : setErr("Choose a reason."))}>{cta}</button>
-        <button className="dp-btn ghost" onClick={onClose}><X size={16} /> Cancel</button>
-      </div>
-    </Modal>
-  );
-}
-
-function History({ jobs }: { jobs: Job[] }) {
-  const [range, setRange] = useState<"today" | "week" | "month">("today");
-  const start = useMemo(() => {
-    const d = new Date(); d.setHours(0, 0, 0, 0);
-    if (range === "week") d.setDate(d.getDate() - 6);
-    if (range === "month") d.setDate(1);
-    return d.getTime();
-  }, [range]);
-  const list = jobs.filter((j) => new Date(j.delivered_at ?? j.failed_at ?? 0).getTime() >= start)
-    .sort((a, b) => (b.delivered_at ?? b.failed_at ?? "").localeCompare(a.delivered_at ?? a.failed_at ?? ""));
-  const sum = (m: "CASH" | "UPI") => list.filter((j) => j.collected?.method === m).reduce((n, j) => n + j.collected!.amount, 0);
-  return (
-    <>
-      <div className="dp-seg" role="tablist">
-        {(["today", "week", "month"] as const).map((r) => <button key={r} className={range === r ? "on" : ""} onClick={() => setRange(r)}>{r === "today" ? "Today" : r === "week" ? "This week" : "This month"}</button>)}
-      </div>
-      <div className="dp-stats">
-        <div><b>{list.filter((j) => j.status === "DELIVERED").length}</b><span>Delivered</span></div>
-        <div><b>{list.filter((j) => j.status === "FAILED").length}</b><span>Failed</span></div>
-        <div><b>{inr(sum("CASH"))}</b><span>Cash collected</span></div>
-        <div><b>{inr(sum("UPI"))}</b><span>UPI collected</span></div>
-      </div>
-      {list.length === 0 && <div className="dp-empty">Nothing here yet.</div>}
-      {list.map((j) => (
-        <article className="dp-card slim" key={j.id}>
-          <div className="dp-card-top"><span className={`dp-type ${TYPE[j.type].cls}`}>{TYPE[j.type].label}</span><span className={`dp-status ${j.status === "DELIVERED" ? "ok" : "bad"}`}>{j.status === "DELIVERED" ? "Delivered" : `Failed · ${j.fail_reason}`}</span></div>
-          <div className="dp-meta"><span>{j.ref.split("#")[0]}</span><span><MapPin size={14} /> {j.area}</span><span>{new Date(j.delivered_at ?? j.failed_at!).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span></div>
-          {j.collected && <p className="dp-note">{j.collected.method === "CASH" ? "Cash" : "UPI"} {inr(j.collected.amount)}{j.collected.reason && ` · ${j.collected.reason}`}</p>}
-        </article>
-      ))}
-    </>
-  );
-}
-
-function DpStyles() {
+function PartnerStyles() {
   return (
     <style>{`
-      .dp, .dp-login { min-height: 100vh; min-height: 100svh; background: #00140F; color: #FFFFFF; font-family: var(--font-body); position: relative; z-index: 1; }
-      .dp { max-width: 720px; margin: 0 auto; padding-bottom: 40px; }
-      .dp-login { display: grid; place-items: center; padding: 20px; }
-      .dp-login-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 12px; padding: 28px 22px; border-radius: 20px; background: #002A22; border: 1px solid rgba(255,255,255,0.14); }
-      .dp-login-card img { width: 72px; align-self: center; }
-      .dp-login-card h1 { font-family: var(--font-display); font-size: 2rem; font-weight: 500; }
-      .dp-kicker { display: inline-flex; gap: 6px; align-items: center; color: #FF9A4D; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; }
-      .dp-label { font-size: 14px; font-weight: 700; color: #DCE8E3; margin-top: 4px; }
-      .dp-field { display: flex; align-items: center; gap: 10px; padding: 0 14px; min-height: 56px; border-radius: 14px; border: 2px solid rgba(255,255,255,0.22); background: #001F19; }
-      .dp-field:focus-within { border-color: #FF8A2B; }
-      .dp-field input { flex: 1; min-width: 0; background: none; border: none; color: #fff; font-size: 18px; padding: 14px 0; }
-      .dp-field span { font-weight: 700; color: #DCE8E3; }
-      .dp-err { color: #FFB4A0; font-weight: 600; font-size: 15px; }
-      .dp-fine { font-size: 13px; color: #BFD1CA; }
-      .dp-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 56px; padding: 0 18px; border-radius: 14px; font-size: 17px; font-weight: 700; width: 100%; transition: transform 150ms, filter 150ms; }
-      .dp-btn:active { transform: scale(0.98); }
-      .dp-btn:disabled { opacity: 0.5; }
-      .dp-btn.primary { background: #FF8A2B; color: #1A0A00; }
-      .dp-btn.ghost { background: transparent; border: 2px solid rgba(255,255,255,0.35); color: #fff; }
-      .dp-btn.danger { background: transparent; border: 2px solid #FF8A70; color: #FFB4A0; }
-      .dp-btn.wide { width: 100%; }
-      .dp-top { position: sticky; top: 0; z-index: 5; padding: 14px 14px 12px; background: #001F19; border-bottom: 1px solid rgba(255,255,255,0.14); display: flex; flex-direction: column; gap: 10px; }
-      .dp-who { display: flex; align-items: center; gap: 10px; }
-      .dp-who img { width: 40px; }
-      .dp-who div { flex: 1; display: flex; flex-direction: column; }
-      .dp-who strong { font-size: 18px; }
-      .dp-who span { font-size: 13px; color: #BFD1CA; }
-      .dp-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); color: #fff; }
-      .dp-online { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border-radius: 14px; font-weight: 700; font-size: 16px; background: #3A2A2A; color: #FFD7CC; border: 2px solid #FF8A70; text-align: left; }
-      .dp-online.on { background: #0F4A33; color: #CFFFE6; border-color: #2FB37A; }
-      .dp-knob { width: 44px; height: 26px; border-radius: 999px; background: rgba(255,255,255,0.25); position: relative; flex-shrink: 0; }
-      .dp-knob::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform 200ms; }
-      .dp-online.on .dp-knob { background: #2FB37A; }
-      .dp-online.on .dp-knob::after { transform: translateX(18px); }
-      .dp-chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-      .dp-chips span { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; border-radius: 12px; background: #002A22; font-size: 12px; color: #BFD1CA; }
-      .dp-chips b { font-size: 18px; color: #fff; }
-      .dp-cash { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px; background: rgba(255,138,43,0.14); border: 1px solid #FF8A2B; font-weight: 600; }
-      .dp-cash strong { margin-left: auto; font-size: 20px; color: #FFB066; }
-      .dp-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 10px 14px; position: sticky; top: 0; }
-      .dp-tabs button { min-height: 48px; border-radius: 12px; font-weight: 700; font-size: 15px; color: #DCE8E3; background: #002A22; border: 1px solid rgba(255,255,255,0.12); }
-      .dp-tabs button.on { background: #FFFFFF; color: #00140F; }
-      .dp-body { padding: 4px 14px; display: flex; flex-direction: column; gap: 12px; }
-      .dp-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-      .dp-filters select { min-height: 48px; border-radius: 12px; background: #002A22; color: #fff; border: 1px solid rgba(255,255,255,0.22); padding: 0 12px; font-size: 15px; }
-      .dp-card { padding: 16px; border-radius: 18px; background: #002A22; border: 1px solid rgba(255,255,255,0.14); display: flex; flex-direction: column; gap: 10px; animation: dp-in 250ms ease both; }
-      .dp-card.mine { border-color: #FF8A2B; }
-      .dp-card.slim { gap: 6px; }
-      @keyframes dp-in { from { opacity: 0; transform: translateY(8px); } }
-      .dp-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-      .dp-type { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
-      .t-order { background: #FFE2C7; color: #4A2300; }
-      .t-sub { background: #CFF5E2; color: #0B3D2A; }
-      .t-event { background: #F7E2A8; color: #3E2D00; }
-      .dp-ref { font-family: var(--font-mono); font-size: 13px; color: #BFD1CA; }
-      .dp-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 15px; color: #DCE8E3; }
-      .dp-meta span { display: inline-flex; align-items: center; gap: 5px; }
-      .dp-items { list-style: none; font-size: 16px; font-weight: 600; }
-      .dp-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-      .dp-pay { padding: 6px 12px; border-radius: 10px; font-weight: 800; font-size: 14px; letter-spacing: 0.02em; }
-      .dp-pay.paid { background: #2FB37A; color: #00140F; }
-      .dp-pay.cod { background: #FF8A2B; color: #1A0A00; }
-      .dp-amt { font-size: 14px; color: #BFD1CA; }
-      .dp-cust { font-size: 22px; font-family: var(--font-display); font-weight: 500; }
-      .dp-contact, .dp-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-      .dp-addr { display: flex; gap: 8px; font-size: 16px; line-height: 1.45; color: #fff; }
-      .dp-addr svg { flex-shrink: 0; margin-top: 3px; color: #FF8A2B; }
-      .dp-note { font-size: 15px; color: #DCE8E3; }
-      .dp-note.strong { font-weight: 700; color: #CFFFE6; }
-      .dp-event { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; border-radius: 12px; background: #001F19; }
-      .dp-event dt { font-size: 12px; color: #BFD1CA; }
-      .dp-event dd { font-size: 15px; font-weight: 600; }
-      .dp-event dd.cod { color: #FFB066; }
-      .dp-empty { padding: 28px 16px; text-align: center; border-radius: 16px; border: 1px dashed rgba(255,255,255,0.25); color: #DCE8E3; font-size: 16px; }
-      .dp-skel div { height: 140px; border-radius: 18px; background: #002A22; margin-bottom: 12px; animation: dp-pulse 1.2s ease-in-out infinite; }
-      @keyframes dp-pulse { 50% { opacity: 0.5; } }
-      .dp-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
-      .dp-seg button { min-height: 52px; border-radius: 12px; font-weight: 700; font-size: 16px; background: #001F19; color: #fff; border: 2px solid rgba(255,255,255,0.25); }
-      .dp-seg button.on { background: #FFFFFF; color: #00140F; border-color: #fff; }
-      .dp-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-      .dp-stats div { padding: 14px; border-radius: 14px; background: #002A22; display: flex; flex-direction: column; gap: 2px; }
-      .dp-stats b { font-size: 22px; }
-      .dp-stats span { font-size: 13px; color: #BFD1CA; }
-      .dp-status { font-size: 13px; font-weight: 700; }
-      .dp-status.ok { color: #7FE3B2; } .dp-status.bad { color: #FFB4A0; }
-      .dp-sheet { padding: 12px 24px 24px; display: flex; flex-direction: column; gap: 12px; }
-      .dp-due { display: flex; justify-content: space-between; align-items: baseline; padding: 14px; border-radius: 14px; background: rgba(255,138,43,0.14); border: 1px solid #FF8A2B; }
-      .dp-due strong { font-size: 28px; color: #FFB066; }
-      .dp-input { min-height: 52px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.25); background: #001F19; color: #fff; padding: 0 14px; font-size: 17px; }
-      .dp-input.big { font-size: 24px; font-weight: 700; }
-      .dp-reasons { display: flex; flex-direction: column; gap: 8px; }
-      .dp-reasons button { min-height: 52px; border-radius: 12px; text-align: left; padding: 0 16px; font-size: 16px; font-weight: 600; color: #fff; background: #001F19; border: 2px solid rgba(255,255,255,0.22); }
-      .dp-reasons button.on { border-color: #FF8A2B; background: rgba(255,138,43,0.14); }
-      .dp-photo { cursor: pointer; }
-      .dp-photo-prev { width: 100%; max-height: 180px; object-fit: cover; border-radius: 12px; }
-      .dp-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 100; padding: 14px 20px; border-radius: 14px; font-weight: 700; font-size: 16px; background: #CFFFE6; color: #00140F; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: calc(100vw - 32px); }
-      .dp-toast.err { background: #FFD7CC; color: #3A0A00; }
-      @media (min-width: 900px) {
-        .dp { max-width: 1100px; }
-        .dp-top { display: grid; grid-template-columns: 1.2fr 1fr; align-items: center; }
-        .dp-chips { grid-column: 1; } .dp-cash { grid-column: 2; }
-        .dp-body { display: grid; grid-template-columns: repeat(2, 1fr); align-items: start; }
-        .dp-body > .dp-filters, .dp-body > .dp-empty, .dp-body > .dp-seg, .dp-body > .dp-stats, .dp-body > .dp-skel { grid-column: 1 / -1; }
-        .dp-filters { grid-template-columns: repeat(4, 1fr); }
-        .dp-stats { grid-template-columns: repeat(4, 1fr); }
-      }
-      @media (prefers-reduced-motion: reduce) { .dp-card, .dp-skel div { animation: none; } }
+      .dp { min-height: 100vh; min-height: 100svh; background: var(--bg); }
+      .dp-bar { position: sticky; top: 0; z-index: 10; background: var(--cream); border-bottom: 1px solid var(--border); }
+      .dp-bar-in { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-4); padding-block: 10px; }
+      .dp-main { padding-top: var(--sp-12); }
+      .admin-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--sp-4); flex-wrap: wrap; }
+      .admin-actions { display: flex; gap: var(--sp-2); }
+      .admin-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-4); }
+      .admin-stat { padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-2); }
+      .admin-stat strong { font-family: var(--font-display); font-size: 1.8rem; font-weight: 500; color: var(--accent-gold-bright); }
+      .admin-empty { padding: var(--sp-12); text-align: center; color: var(--text-dim); }
+      .admin-form { display: flex; flex-direction: column; gap: var(--sp-4); }
+      .dp-pass { position: relative; }
+      .dp-pass .input { padding-right: 48px; }
+      .dp-pass button { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); padding: 6px; color: var(--text-dim); }
+      .dp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--sp-4); align-items: start; }
+      .dp-card { padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; overflow: hidden; }
+      .dp-card-top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+      .dp-ref { font-size: var(--font-xs); color: var(--text-dim); font-weight: 600; letter-spacing: 0.06em; }
+      .dp-go { display: flex; flex-direction: column; gap: var(--sp-2); }
+      /* full-width, stacked buttons: card widths vary, and long labels must never spill out of the card */
+      .dp-go-row { display: flex; flex-direction: column; gap: var(--sp-2); }
+      .dp-card .btn { width: 100%; min-width: 0; white-space: normal; text-align: center; letter-spacing: 0.06em; padding-inline: 14px; }
+      .dp-go-more { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: var(--font-xs); color: var(--text-dim); }
+      .dp-go-more a, .dp-go-more button { color: var(--accent-gold); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+      .dp-map { width: 100%; height: 200px; border: 0; border-radius: var(--radius-md); }
+      .dp-hist { display: grid; grid-template-columns: repeat(3, auto); gap: var(--sp-3); font-size: var(--font-sm); padding-top: var(--sp-3); border-top: 1px solid var(--border); }
+      .dp-hist dt { font-size: var(--font-xs); color: var(--text-dim); }
+      .dp-kv small { color: var(--text-dim); }
+      .dp-kv { display: flex; flex-direction: column; gap: 8px; font-size: var(--font-sm); }
+      .dp-kv div { display: flex; gap: 10px; }
+      .dp-kv dt { color: var(--accent-gold); padding-top: 2px; }
+      .dp-kv a { color: var(--accent-gold); font-weight: 600; }
+      .dp-note { font-size: var(--font-sm); padding: 8px 12px; border-radius: var(--radius-sm); background: var(--bg-sunk); }
+      .dp-pay { display: flex; align-items: center; gap: 6px; font-size: var(--font-sm); font-weight: 600; color: var(--accent-gold); }
+      .dp-money { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--radius-md); background: var(--bg-sunk); }
+      .dp-money > div:first-child { display: flex; flex-direction: column; }
+      .dp-money strong { font-family: var(--font-display); font-size: 1.9rem; line-height: 1.1; }
+      .dp-money-r { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+      .dp-money-r small { font-size: var(--font-xs); color: var(--text-dim); }
+      .dp-skip { display: flex; flex-direction: column; gap: var(--sp-2); }
+      .dp-lock { grid-column: 1 / -1; font-size: var(--font-xs); color: var(--text-dim); text-align: center; }
+      .dp-pay.due { color: var(--accent-saffron-bright); }
+      .dp-steps { display: flex; flex-direction: column; gap: 6px; padding-top: var(--sp-3); border-top: 1px solid var(--border); }
+      .dp-steps li { display: flex; align-items: center; gap: 10px; font-size: var(--font-sm); color: var(--text-dim); }
+      .dp-steps li.done { color: var(--text); font-weight: 600; }
+      .dp-steps time { margin-left: auto; font-size: var(--font-xs); color: var(--text-dim); font-weight: 400; }
+      .dp-dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border-strong); display: grid; place-items: center; flex-shrink: 0; }
+      .done .dp-dot { background: var(--accent-gold); border-color: var(--accent-gold); color: #fff; }
+      .dp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+      .dp-actions .btn-block { grid-column: 1 / -1; }
+      ${doorPaymentStyles}
+      @media (max-width: 900px) { .admin-stats { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 420px) { .dp-hist { grid-template-columns: 1fr 1fr; } }
+      @media (max-width: 420px) { .dp-grid { grid-template-columns: 1fr; } .dp-actions { grid-template-columns: 1fr; } .dp-bar .btn { padding-inline: 10px; } }
     `}</style>
   );
 }
-

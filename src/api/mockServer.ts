@@ -5,6 +5,7 @@ import type {
   AuditEntry, Branch, BranchHoliday, BranchProduct, CreateOrderRequest, CreatedOrderPricing, DeliveryQuote,
   DeliverySettings, Product, PublicProduct, QuoteRequest,
 } from "./types";
+import bcrypt from "bcryptjs";
 import { COUPONS } from "@/data/catalog";
 import { drivingDistanceKm } from "@/lib/googleMaps";
 import {
@@ -153,6 +154,21 @@ function migrate(d: Db) {
     set("PP500", 7500); set("PP1000", 15000);
     done.push("prices-75-150");
   }
+  if (!done.includes("manual-order-lifecycle")) {
+    // orders now wait for the admin; older statuses map onto the new lifecycle
+    const map: Record<string, ServerOrder["status"]> = { placed: "pending", preparing: "picked_up", out_for_delivery: "picked_up" };
+    for (const o of d.orders ?? []) {
+      o.status = map[o.status as string] ?? o.status;
+      o.payment_status ??= o.payment === "cod" ? "DUE" : "ONLINE";
+    }
+    for (const j of d.jobs ?? []) if (j.status === "OUT") j.status = "PICKED";
+    done.push("manual-order-lifecycle");
+  }
+  if (!done.includes("otp-hashed")) {
+    // delivery OTPs are kept as hashes only
+    for (const r of Object.values(d.otps ?? {})) if (r.code) { r.hash = bcrypt.hashSync(r.code, 6); delete r.code; }
+    done.push("otp-hashed");
+  }
   if (!done.includes("demo-distance-fallback")) {
     d.settings.demo_distance_fallback = true;
     done.push("demo-distance-fallback");
@@ -160,8 +176,15 @@ function migrate(d: Db) {
   }
 }
 
+let lastSaved = "";
 function commit() {
-  try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* storage full or blocked: keep in memory */ }
+  // Reads also commit (they create today's plan and event deliveries the first time anyone looks), so only a real
+  // change is saved and announced. Announcing every read made every open list reload, which read and announced
+  // again: an endless loop that tripped the admin rate limit.
+  const json = JSON.stringify(db);
+  if (json === lastSaved) return;
+  lastSaved = json;
+  try { localStorage.setItem(KEY, json); } catch { /* storage full or blocked: keep in memory */ }
   // cache-bust for every open screen (this tab and others)
   window.dispatchEvent(new Event("ssp-db-changed"));
 }
@@ -348,7 +371,9 @@ async function priceOrder(req: CreateOrderRequest): Promise<CreatedOrderPricing>
     if (l.plan && !p.plan_eligible) throw new ApiError(422, `${p.name_en} ${p.size_label_en} is not part of the daily plan`);
     const days = l.plan ? Number(l.planDays) : 1;
     if (l.plan && !(String(days) in (s.plan_discounts ?? {}))) throw new ApiError(422, "Choose a 7, 15 or 30-day plan");
-    return { productId: p.id, productName: p.name_en, sizeLabel: p.size_label_en, unitPrice: pp.price, qty: l.qty, lineTotal: pp.price * l.qty * days, plan: l.plan, planDays: l.plan ? days : undefined, planDiscountPct: l.plan ? planPct(s, days) : undefined };
+    const today = istDate();
+    if (l.plan && l.startDate && (!/^\d{4}-\d{2}-\d{2}$/.test(l.startDate) || l.startDate < today || l.startDate > addDays(today, 30))) throw new ApiError(422, "Choose a plan start date within the next 30 days");
+    return { productId: p.id, productName: p.name_en, sizeLabel: p.size_label_en, unitPrice: pp.price, qty: l.qty, lineTotal: pp.price * l.qty * days, plan: l.plan, planDays: l.plan ? days : undefined, planDiscountPct: l.plan ? planPct(s, days) : undefined, startDate: l.plan ? l.startDate || today : undefined };
   });
   const subtotal = items.reduce((n, i) => n + i.lineTotal, 0);
   const coupon = req.couponCode ? COUPONS[req.couponCode.toUpperCase()] : undefined;
@@ -615,10 +640,14 @@ function recordOrder(d: Db, req: CreateOrderRequest, pricing: CreatedOrderPricin
     customer: { mobile, name }, address, area: address?.area ?? "", branch_id: pricing.delivery.branch_id, distance_km: pricing.delivery.distance_km,
     items: pricing.items.map((i) => ({ name: i.productName, size: i.sizeLabel, qty: i.qty, lineTotal: i.lineTotal, plan: i.plan, planDays: i.planDays })),
     subtotal: pricing.subtotal, discount: pricing.couponDiscount + pricing.planDiscount, delivery_fee: pricing.deliveryFee, total: pricing.total,
-    payment: req.payment ?? "upi", status: "placed",
+    payment: req.payment ?? "upi", status: "pending",
+    payment_status: req.payment === "cod" ? "DUE" : "ONLINE",
+    delivery_date: req.deliveryDate, delivery_slot: req.deliverySlot,
+    payment_ref: req.payment !== "cod" ? req.paymentRef : undefined,
+    history: [{ at: stamp(), action: req.payment === "cod" ? "order placed · pay on delivery" : `order placed · paid online${req.paymentRef ? ` (${req.paymentRef})` : ""}`, by: `customer:${mobile}` }],
   };
   (d.orders ??= []).unshift(order);
-  // each plan line becomes a subscription, starting today
+  // each plan line becomes a subscription, starting on the date the customer chose (today by default)
   for (const i of pricing.items.filter((x) => x.plan)) {
     const p = products.find((x) => x.id === i.productId);
     const discount = Math.round((i.lineTotal * (i.planDiscountPct ?? 0)) / 100);
@@ -627,11 +656,11 @@ function recordOrder(d: Db, req: CreateOrderRequest, pricing: CreatedOrderPricin
       customer: { mobile, name, email }, address, area: address?.area ?? "", branch_id: order.branch_id,
       product_id: i.productId, product_name: p?.name_en ?? i.productName, size: i.sizeLabel, qty: i.qty,
       plan_days: i.planDays ?? 7, discount_pct: i.planDiscountPct ?? 0, amount_paid: i.lineTotal - discount, payment: order.payment,
-      start_date: today, records: {}, pauses: [], cancelled_at: null, cancel_end_date: null, notes: "",
+      start_date: i.startDate ?? today, records: {}, pauses: [], cancelled_at: null, cancel_end_date: null, notes: "",
     };
     (d.subs ??= []).unshift(s);
   }
-  createOrderJob(d, order);
+  // no delivery job yet: the admin confirms the order first (see PUT /admin/orders/:id)
 }
 
 function viewSub(s: Subscription, today = istDate()) {
@@ -648,23 +677,178 @@ function jobAudit(by: string, j: Job, action: string, note?: string) {
   j.history.push({ at: stamp(), action, by, note });
   audit(by, "delivery", j.ref, action, null, note ?? null);
 }
-const toOrderStatus: Record<Job["status"], ServerOrder["status"]> = { READY: "confirmed", PICKED: "preparing", OUT: "out_for_delivery", DELIVERED: "delivered", FAILED: "confirmed" };
+const toOrderStatus: Record<Job["status"], ServerOrder["status"]> = { READY: "confirmed", ASSIGNED: "confirmed", PICKED: "picked_up", OUT: "picked_up", DELIVERED: "delivered", FAILED: "confirmed", CANCELLED: "cancelled" };
 
 /** Updates the order / subscription day / event a job came from. */
 function syncSource(d: Db, j: Job) {
   if (j.type === "ORDER") {
     const o = (d.orders ?? []).find((x) => x.ref === j.source_id);
-    if (o && o.status !== "cancelled") o.status = toOrderStatus[j.status];
+    if (o && o.status !== "cancelled" && o.status !== "rejected") {
+      o.status = toOrderStatus[j.status];
+      if (j.paid_at && o.payment_status === "DUE") o.payment_status = "COLLECTED";
+    }
   } else if (j.type === "SUBSCRIPTION") {
     const s = (d.subs ?? []).find((x) => x.id === j.source_id);
     const partner = (d.partners ?? []).find((p) => p.id === j.partner_id)?.name;
-    if (s && j.status === "DELIVERED") s.records[j.date] = { status: "DELIVERED", partner, time: j.delivered_at };
+    if (s && j.status === "DELIVERED") s.records[j.date] = { status: "DELIVERED", partner, time: j.delivered_at, otp_verified_at: j.otp_verified_at, job_id: j.id };
     if (s && j.status === "FAILED") s.records[j.date] = { status: "FAILED", partner, time: j.failed_at, reason: j.fail_reason };
   } else if (j.type === "EVENT") {
     const e = (d.eventRequests ?? []).find((x) => x.id === j.source_id);
     if (e && j.status === "DELIVERED") { e.balance_collected = (e.balance_collected ?? 0) + (j.collected?.amount ?? 0); e.status = "COMPLETED"; }
   }
 }
+
+const OTP_TTL_MS = 2 * 3600_000; // a delivery OTP stays valid for two hours
+const OTP_MAX_ATTEMPTS = 5;
+
+/** A message to the customer's registered mobile. Production sends these by SMS; this demo keeps them in an outbox. */
+type Note = NonNullable<Db["outbox"]>[number];
+function notify(d: Db, mobile: string, ref: string, text: string, extra: Partial<Pick<Note, "job_id" | "otp" | "kind" | "key" | "title">> = {}) {
+  // the same delivery event never notifies twice
+  if (extra.key && d.outbox?.some((n) => n.key === extra.key)) return;
+  // in-app is always kept; SMS / WhatsApp are sent only once a provider is connected, and can be retried
+  (d.outbox ??= []).push({ at: stamp(), mobile, ref, text, ...extra, channels: { in_app: "DELIVERED", sms: "NOT_CONFIGURED" } });
+  if (d.outbox.length > 500) d.outbox = d.outbox.slice(-500);
+}
+
+const longDate = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+
+/** The customer's confirmation for a finished delivery, and for a plan, its completion. Never includes the OTP. */
+function afterDelivery(d: Db, j: Job, partnerName: string) {
+  if (j.type === "ORDER") {
+    notify(d, j.customer.mobile, j.source_id, `Your order ${j.source_id} has been delivered by ${partnerName}. Thank you for choosing Sri Sastha Paruthipaal!`,
+      { kind: "DELIVERED", title: "Your order is delivered", key: `delivered:${j.id}` });
+    return;
+  }
+  if (j.type !== "SUBSCRIPTION") return;
+  const s = d.subs?.find((x) => x.id === j.source_id);
+  if (!s) return;
+  const v = viewSub(s, istDate());
+  const day = j.sub_info?.day_no ?? v.delivered;
+  notify(d, s.customer.mobile, s.ref, [
+    `Your Day ${day} subscription delivery has been successfully completed.`,
+    `Subscription ID: ${s.ref}`, `Delivery date: ${longDate(j.date)}`, `Product: ${s.product_name}`, `Quantity: ${s.size} × ${s.qty}`,
+    `Delivery status: Successfully delivered`, `Delivery partner: ${partnerName}`,
+    `${v.delivered} of ${s.plan_days} deliveries completed.`, `Thank you for choosing Sri Sastha Paruthipaal!`,
+  ].join("\n"), { kind: "PLAN_DAY", title: "Your daily Paruthipaal delivery is completed!", key: `plan-day:${s.id}:${j.date}`, job_id: j.id });
+  if (v.delivered >= s.plan_days) {
+    notify(d, s.customer.mobile, s.ref, `All ${s.plan_days} deliveries of your subscription ${s.ref} are complete. Amount paid: ₹${s.amount_paid / 100}. Renew anytime from your subscriptions page.`,
+      { kind: "PLAN_DONE", title: "Your subscription is complete", key: `plan-done:${s.id}` });
+    audit("system", "subscription", s.ref, "completed", null, null);
+  }
+}
+
+/** A plan as its customer sees it: today's delivery and OTP, and the plan's notifications (OTP messages left out). */
+function customerSubView(d: Db, s: Subscription, today: string) {
+  const v = viewSub(s, today);
+  const j = (d.jobs ?? []).find((x) => x.type === "SUBSCRIPTION" && x.source_id === s.id && x.date === today);
+  const rec = j ? d.otps?.[j.id] : undefined;
+  const otpOk = j && (j.status === "PICKED" || j.status === "OUT") && rec && !rec.used && rec.expires > Date.now() && j.otp_status !== "LOCKED";
+  const partner = j?.partner_id ? d.partners?.find((p) => p.id === j.partner_id) : s.partner_id ? d.partners?.find((p) => p.id === s.partner_id) : undefined;
+  return {
+    ...v,
+    partner: partner ? { name: partner.name, mobile: partner.mobile } : null,
+    today: j ? { status: j.status, otp: otpOk ? [...(d.outbox ?? [])].reverse().find((n) => n.job_id === j.id && n.otp)?.otp ?? null : null, otp_status: j.otp_status ?? null } : null,
+    notifications: (d.outbox ?? []).filter((n) => n.ref === s.ref && n.kind !== "OTP").slice(-20).reverse().map((n) => ({ at: n.at, title: n.title ?? "", text: n.text })),
+  };
+}
+export type CustomerSubView = ReturnType<typeof customerSubView>;
+
+function orderLog(d: Db, ref: string, action: string, by: string, note?: string) {
+  const o = d.orders?.find((x) => x.ref === ref);
+  if (o) (o.history ??= []).push({ at: stamp(), action, by, note });
+}
+
+/** A new single-use 6-digit OTP for an order delivery. In production it is sent by SMS to the customer's registered mobile. */
+function issueOtp(d: Db, j: Job, by: string) {
+  const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000).padStart(6, "0");
+  // only a hash is stored with the order; the code itself goes to the customer (SMS in production, the outbox here)
+  (d.otps ??= {})[j.id] = { hash: bcrypt.hashSync(code, 6), expires: Date.now() + OTP_TTL_MS, attempts: 0, used: false };
+  const ref = j.type === "ORDER" ? j.source_id : j.ref.split("#")[0];
+  const what = j.type === "SUBSCRIPTION" ? `today's ${ref} delivery${j.sub_info ? ` (day ${j.sub_info.day_no})` : ""}` : ref;
+  notify(d, j.customer.mobile, ref, `Your Sri Sastha delivery OTP for ${what} is ${code}. Share it with the delivery partner only after you receive your order.`, { job_id: j.id, otp: code, kind: "OTP" });
+  Object.assign(j, { otp_status: "SENT", otp_sent_at: stamp() });
+  jobAudit(by, j, "delivery OTP sent to the customer");
+  if (j.type === "ORDER") orderLog(d, j.source_id, "delivery OTP sent to the customer", by);
+}
+
+/** The gateway's verdict on a QR payment request (webhook). Only this marks a door payment as paid. */
+function settleQr(d: Db, payreqId: string, status: "PAID" | "FAILED", gatewayRef: string) {
+  const r = d.payreqs?.[payreqId];
+  if (!r) throw new ApiError(404, "Payment request not found");
+  const j = (d.jobs ?? []).find((x) => x.id === r.job_id);
+  if (!j || j.qr?.id !== payreqId) throw new ApiError(409, "This payment request is no longer active.");
+  if (r.status === "PAID") return j; // webhooks can repeat: settle once
+  Object.assign(r, { status, gateway_ref: gatewayRef });
+  j.qr = { ...j.qr, status, gateway_ref: gatewayRef };
+  if (status === "PAID") {
+    j.collected = { method: "UPI", amount: r.amount };
+    j.paid_at = stamp();
+    jobAudit("gateway", j, `QR payment verified ₹${r.amount / 100}`, gatewayRef);
+    if (j.type === "ORDER") {
+      const o = d.orders?.find((x) => x.ref === j.source_id);
+      if (o) { o.payment_status = "COLLECTED"; o.qr_ref = gatewayRef; o.paid_at = j.paid_at; }
+      orderLog(d, j.source_id, `QR payment verified ₹${r.amount / 100}`, "gateway", gatewayRef);
+    }
+  } else jobAudit("gateway", j, "QR payment failed", gatewayRef);
+  return j;
+}
+
+/** Manual assignment by the admin. An empty partner id takes the delivery back. */
+function assignJob(d: Db, j: Job, partnerId: string, by: string) {
+  if (j.status !== "READY" && j.status !== "ASSIGNED") throw new ApiError(409, "This delivery is already picked up.");
+  const now = stamp();
+  const open = j.assignments?.find((a) => !a.until);
+  if (open) open.until = now; // the previous assignment stays in the record, closed
+  if (!partnerId) {
+    Object.assign(j, { status: "READY", partner_id: null, assigned_at: undefined });
+    jobAudit(by, j, "unassigned");
+    if (j.type === "ORDER") orderLog(d, j.source_id, "partner unassigned", by);
+    return;
+  }
+  const p = (d.partners ?? []).find((x) => x.id === partnerId);
+  if (!p || !p.active) throw new ApiError(422, "Choose an active delivery partner.", { partner_id: "Required" });
+  Object.assign(j, { status: "ASSIGNED", partner_id: p.id, assigned_at: now });
+  (j.assignments ??= []).push({ partner_id: p.id, name: p.name, mobile: p.mobile, at: now, by });
+  jobAudit(by, j, open ? `reassigned from ${open.name} to ${p.name}` : `assigned to ${p.name}`);
+  if (j.type === "ORDER") {
+    orderLog(d, j.source_id, open ? `partner changed: ${open.name} → ${p.name} (${p.mobile})` : `partner assigned: ${p.name} (${p.mobile})`, by);
+    notify(d, j.customer.mobile, j.source_id, `Your Sri Sastha order ${j.source_id} is confirmed. ${p.name} (${p.mobile}) will deliver it.`, { kind: "CONFIRMED", title: "Order confirmed" });
+  }
+}
+
+/** Orders a guest looked up on this device: order ID → the mobile number they proved it with. */
+function guestTracked(raw: unknown) {
+  const list = Array.isArray(raw) ? (raw as { ref?: unknown; mobile?: unknown }[]) : [];
+  return new Map(list.slice(0, 50).map((t) => [String(t.ref ?? ""), normaliseMobile(String(t.mobile ?? ""))]));
+}
+
+/** What a customer sees for one order: the five-step timeline, payment and the assigned partner. */
+function customerOrderView(d: Db, o: ServerOrder) {
+  const j = (d.jobs ?? []).find((x) => x.type === "ORDER" && x.source_id === o.ref);
+  const p = j?.partner_id ? (d.partners ?? []).find((x) => x.id === j.partner_id) : undefined;
+  const paidAt = o.payment_status === "VERIFIED" ? o.confirmed_at : o.payment_status === "COLLECTED" ? j?.paid_at : undefined;
+  return {
+    ref: o.ref, status: o.status, created_at: o.created_at, payment: o.payment, payment_status: o.payment_status ?? (o.payment === "cod" ? "DUE" : "ONLINE"),
+    items: o.items, subtotal: o.subtotal, discount: o.discount, delivery_fee: o.delivery_fee, total: o.total,
+    delivery_date: j?.date ?? o.delivery_date ?? null, delivery_slot: o.delivery_slot ?? null, reject_reason: o.reject_reason ?? null,
+    history: (o.history ?? []).filter((h) => !h.action.startsWith("delivery OTP")).map((h) => ({ at: h.at, action: h.action })),
+    steps: {
+      placed: o.created_at, confirmed: o.confirmed_at ?? null, assigned: j?.assignments?.[0]?.at ?? j?.assigned_at ?? null,
+      picked: j?.picked_at ?? null, paid: o.payment === "cod" ? paidAt ?? null : null, otp: j?.otp_verified_at ?? null, delivered: j?.delivered_at ?? null,
+    },
+    partner: p && o.status !== "rejected" && o.status !== "cancelled" ? { name: p.name, mobile: p.mobile } : null,
+    // the delivery OTP is shown only once the partner has picked up the order, and never after delivery
+    // the OTP the customer was sent, shown only while the order is out for delivery and the OTP is still usable
+    otp: j && (j.status === "PICKED" || j.status === "OUT") && d.otps?.[j.id] && !d.otps[j.id].used && d.otps[j.id].expires > Date.now() && j.otp_status !== "LOCKED"
+      ? [...(d.outbox ?? [])].reverse().find((m) => m.job_id === j.id && m.otp)?.otp ?? null : null,
+    assigned_at: j?.assignments?.find((a) => !a.until)?.at ?? j?.assigned_at ?? null,
+    delivery_status: j ? ({ READY: "Waiting for a partner", ASSIGNED: "Partner assigned", PICKED: "Out for delivery", OUT: "Out for delivery", DELIVERED: "Delivered", FAILED: "Not delivered", CANCELLED: "Cancelled" } as const)[j.status] : null,
+    online_paid: o.payment !== "cod" ? { at: o.created_at, verified_at: o.payment_status === "VERIFIED" ? o.confirmed_at ?? null : null } : null,
+    otp_status: j?.otp_status ?? null,
+  };
+}
+export type CustomerOrderView = ReturnType<typeof customerOrderView>;
 
 function opsRoute(method: string, scope: string, resource: string, id: string | undefined, body: unknown, adminToken?: string, customerToken?: string, partnerToken?: string): unknown {
   const d = load();
@@ -686,17 +870,49 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
       return { ok: true };
     }
     case "POST /orders/status": {
+      // signed in: every order on the account; guest: orders placed on this device, plus orders they looked up
+      // with the order ID and the mobile number used for it
+      const mobile = sessionCustomer(d, customerToken)?.mobile;
       const refs = new Set((b.refs as string[]) ?? []);
-      return (d.orders ?? []).filter((o) => refs.has(o.ref)).map((o) => {
-        const j = (d.jobs ?? []).find((x) => x.type === "ORDER" && x.source_id === o.ref);
-        return { ref: o.ref, status: o.status, job: j ? { status: j.status, delivered_at: j.delivered_at ?? null } : null };
-      });
+      const tracked = guestTracked(b.tracked);
+      return (d.orders ?? []).filter((o) => refs.has(o.ref) || (mobile && o.customer.mobile === mobile) || tracked.get(o.ref) === o.customer.mobile).map((o) => customerOrderView(d, o));
+    }
+    case "POST /orders/lookup": {
+      // guest tracking from any device: the order ID alone is not enough, the order's mobile number must match
+      const ref = String(b.ref ?? "").trim().toUpperCase().replace(/^(SSP)-?/, "SSP-");
+      const m = normaliseMobile(String(b.mobile ?? ""));
+      const o = (d.orders ?? []).find((x) => x.ref === ref && x.customer.mobile === m);
+      if (!o) throw new ApiError(404, "We couldn't find an order with that ID and mobile number.");
+      return customerOrderView(d, o);
+    }
+    case "POST /orders/otp-resend": {
+      // only the customer who owns the order (signed in, or this device's order) can ask for a new OTP
+      const mobile = sessionCustomer(d, customerToken)?.mobile;
+      const refs = new Set((b.refs as string[]) ?? []);
+      const tracked = guestTracked(b.tracked);
+      const o = (d.orders ?? []).find((x) => x.ref === b.ref && (refs.has(x.ref) || (mobile && x.customer.mobile === mobile) || tracked.get(x.ref) === x.customer.mobile));
+      const j = o && (d.jobs ?? []).find((x) => x.type === "ORDER" && x.source_id === o.ref);
+      if (!o || !j || !(j.status === "PICKED" || j.status === "OUT")) throw new ApiError(409, "An OTP is issued once your order is out for delivery.");
+      issueOtp(d, j, `customer:${o.customer.mobile}`);
+      commit();
+      return customerOrderView(d, o);
     }
     case "POST /subscriptions/mine": {
       // signed in: all plans on the account; guest: plans from orders placed on this device
       const mobile = sessionCustomer(d, customerToken)?.mobile;
       const refs = new Set((b.orderRefs as string[]) ?? []);
-      return (d.subs ?? []).filter((s) => (mobile && s.customer.mobile === mobile) || refs.has(s.order_ref)).map((s) => viewSub(s, today));
+      return (d.subs ?? []).filter((s) => (mobile && s.customer.mobile === mobile) || refs.has(s.order_ref)).map((s) => customerSubView(d, s, today));
+    }
+    case "POST /subscriptions/otp-resend": {
+      // the plan's own customer asks for a new OTP for today's delivery
+      const mobile = sessionCustomer(d, customerToken)?.mobile;
+      const refs = new Set((b.orderRefs as string[]) ?? []);
+      const s = (d.subs ?? []).find((x) => x.id === b.id && ((mobile && x.customer.mobile === mobile) || refs.has(x.order_ref)));
+      const j = s && (d.jobs ?? []).find((x) => x.type === "SUBSCRIPTION" && x.source_id === s.id && x.date === today);
+      if (!s || !j || !(j.status === "PICKED" || j.status === "OUT")) throw new ApiError(409, "An OTP is issued once today's delivery is on its way.");
+      issueOtp(d, j, `customer:${s.customer.mobile}`);
+      commit();
+      return customerSubView(d, s, today);
     }
     case "PUT /subscriptions/action": {
       const mobile = sessionCustomer(d, customerToken)?.mobile;
@@ -718,71 +934,118 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
       const p = requirePartner(d, partnerToken);
       return { partner: publicPartner(p), summary: partnerSummary(d, p.id, today), branch: d.branches.find((x) => x.id === p.branch_id)?.name_en ?? "" };
     }
-    case "PUT /partner/online": {
-      const p = requirePartner(d, partnerToken);
-      p.online = !!b.online;
-      audit(`partner:${p.mobile}`, "partner", p.id, p.online ? "online" : "offline", null, null);
-      commit();
-      return { online: p.online };
-    }
     case "GET /partner/jobs": {
       const p = requirePartner(d, partnerToken);
       prepareJobs(); commit();
-      const jobs = d.jobs ?? [];
+      const jobs = (d.jobs ?? []).filter((j) => j.partner_id === p.id);
       return {
-        available: p.online ? jobs.filter((j) => j.status === "READY" && j.branch_id === p.branch_id).map((j) => jobForPartner(j, p.id)) : [],
-        mine: jobs.filter((j) => j.partner_id === p.id && (j.status === "PICKED" || j.status === "OUT")).map((j) => jobForPartner(j, p.id)),
-        history: jobs.filter((j) => j.partner_id === p.id && (j.status === "DELIVERED" || j.status === "FAILED")).map((j) => jobForPartner(j, p.id)),
-        summary: partnerSummary(d, p.id, today), online: p.online,
+        mine: jobs.filter((j) => j.status === "ASSIGNED" || j.status === "PICKED" || j.status === "OUT").map((j) => jobForPartner(j, p.id)),
+        // their finished deliveries, plus ones cancelled or moved to another partner while assigned to them
+        history: (d.jobs ?? []).filter((j) => (j.partner_id === p.id && ["DELIVERED", "FAILED", "CANCELLED"].includes(j.status))
+          || (j.partner_id !== p.id && j.assignments?.some((a) => a.partner_id === p.id)))
+          .slice(-50).map((j) => ({ ...jobForPartner(j, p.id), reassigned: j.partner_id !== p.id })),
+        summary: partnerSummary(d, p.id, today),
+        // the subscription customers this partner serves every plan day, with their next delivery
+        plans: (d.subs ?? []).filter((s) => s.partner_id === p.id).map((s) => viewSub(s, today))
+          .filter((s) => s.status === "ACTIVE" || s.status === "PAUSED")
+          .map((s) => {
+            const next = s.calendar.find((c) => c.status === "UPCOMING" && c.date >= today)?.date ?? null;
+            const todayJob = jobs.find((j) => j.type === "SUBSCRIPTION" && j.source_id === s.id && j.date === today);
+            return {
+              id: s.id, ref: s.ref, status: s.status, customer: s.customer.name, mobile: s.customer.mobile, area: s.area,
+              address: s.address ? [s.address.line1, s.address.line2, s.address.area].filter(Boolean).join(", ") : "",
+              item: `${s.product_name} ${s.size} × ${s.qty}`, start_date: s.start_date, end_date: s.end_date,
+              delivered: s.delivered, remaining: s.remaining, next_date: next, today: todayJob?.status ?? null,
+            };
+          }),
       };
     }
-    case "POST /partner/pick":
-    case "POST /partner/start":
-    case "POST /partner/release":
+    // A partner can only act on deliveries the admin assigned to them: confirm pickup, open the QR for the
+    // exact amount due, and complete the delivery with the customer's OTP. Payment status is never set by a partner.
+    case "POST /partner/pickup":
+    case "POST /partner/qr":
+    case "POST /partner/qr-status":
     case "POST /partner/deliver":
-    case "POST /partner/fail": {
+    case "POST /partner/skip":
+    case "POST /partner/otp-resend": {
       const p = requirePartner(d, partnerToken);
       const j = (d.jobs ?? []).find((x) => x.id === b.id);
-      if (!j) throw new ApiError(404, "Order not found");
+      if (!j || j.partner_id !== p.id) throw new ApiError(404, "This order isn't assigned to you.");
       const by = `partner:${p.mobile}`;
-      if (resource === "pick") {
-        if (!p.online) throw new ApiError(409, "Go online to pick orders.");
-        // first tap wins: the job is only READY once
-        if (j.status !== "READY" || j.partner_id) throw new ApiError(409, "Already picked by another partner.", undefined, "ALREADY_PICKED");
-        Object.assign(j, { status: "PICKED", partner_id: p.id, picked_at: stamp() });
-        jobAudit(by, j, "picked");
-      } else {
-        if (j.partner_id !== p.id || !(j.status === "PICKED" || j.status === "OUT")) throw new ApiError(409, "This order isn't in your list.");
-        if (resource === "start") { j.status = "OUT"; j.out_at = stamp(); jobAudit(by, j, "out for delivery"); }
-        if (resource === "release") {
-          const reason = String(b.reason ?? "").trim();
-          if (!reason) throw new ApiError(422, "Give a reason for releasing the order.", { reason: "Required" });
-          Object.assign(j, { status: "READY", partner_id: null, picked_at: undefined, out_at: undefined });
-          jobAudit(by, j, "released", reason);
-        }
-        if (resource === "deliver") {
-          if (j.due > 0) {
-            const method = b.method === "UPI" ? "UPI" : b.method === "CASH" ? "CASH" : null;
-            const amount = Math.round(Number(b.amount));
-            const reason = String(b.reason ?? "").trim();
-            if (!method) throw new ApiError(422, "Choose Cash or UPI.", { method: "Required" });
-            if (!(amount >= 0)) throw new ApiError(422, "Enter the amount received.", { amount: "Required" });
-            if (amount !== j.due && !reason) throw new ApiError(422, "The amount differs from the amount due. Give a reason.", { reason: "Required when the amount differs" });
-            j.collected = { method, amount, reason: reason || undefined };
-          }
-          Object.assign(j, { status: "DELIVERED", delivered_at: stamp(), location: (b.location as Job["location"]) ?? null });
-          jobAudit(by, j, j.due > 0 ? `collected ${j.collected!.method} ₹${j.collected!.amount / 100} & delivered` : "delivered", j.collected?.reason);
-        }
-        if (resource === "fail") {
-          const reason = String(b.reason ?? "").trim();
-          if (!reason) throw new ApiError(422, "Choose a reason.", { reason: "Required" });
-          Object.assign(j, { status: "FAILED", failed_at: stamp(), fail_reason: reason, fail_photo: (b.photo as string) || undefined, location: (b.location as Job["location"]) ?? null });
-          jobAudit(by, j, "failed", reason);
+      const out = j.status === "PICKED" || j.status === "OUT";
+      if (resource === "pickup") {
+        if (j.status !== "ASSIGNED") throw new ApiError(409, "Pickup is already confirmed.");
+        Object.assign(j, { status: "PICKED", picked_at: stamp() });
+        jobAudit(by, j, "pickup confirmed");
+        if (j.type === "ORDER") orderLog(d, j.source_id, `pickup confirmed by ${p.name}`, by);
+        if (j.type === "ORDER" || j.type === "SUBSCRIPTION") issueOtp(d, j, "system");
+      }
+      if (resource === "qr") {
+        if (!out) throw new ApiError(409, "Confirm pickup first.");
+        if (!(j.due > 0) || j.paid_at) throw new ApiError(409, "This order is already paid.");
+        // reuse an open request; the amount always comes from the order, never from the partner
+        if (!j.qr || j.qr.status === "FAILED" || j.qr.amount !== j.due) {
+          const id = uid("qr");
+          (d.payreqs ??= {})[id] = { job_id: j.id, amount: j.due, status: "WAITING", created_at: stamp() };
+          j.qr = { id, amount: j.due, status: "WAITING", created_at: stamp() };
+          jobAudit(by, j, `QR payment request ₹${j.due / 100}`);
         }
       }
+      if (resource === "qr-status") {
+        if (!j.qr) throw new ApiError(404, "No payment request yet.");
+      }
+      if (resource === "otp-resend") {
+        if (!out || j.type === "EVENT") throw new ApiError(409, "An OTP is issued once the order is picked up.");
+        issueOtp(d, j, by);
+      }
+      if (resource === "skip") {
+        // plan day only: the customer wasn't available or asked to skip; the day isn't counted, so the plan runs a day longer
+        if (j.type !== "SUBSCRIPTION") throw new ApiError(403, "Only a subscription day can be skipped.");
+        if (j.status === "DELIVERED" || j.status === "FAILED") throw new ApiError(409, "This day is already recorded.");
+        const reason = String(b.reason ?? "").trim();
+        if (!reason) throw new ApiError(422, "Choose a reason.", { reason: "Required" });
+        Object.assign(j, { status: "FAILED", failed_at: stamp(), fail_reason: reason });
+        jobAudit(by, j, "plan day skipped", reason);
+      }
+      if (resource === "deliver") {
+        if (j.status === "DELIVERED") throw new ApiError(409, "This delivery is already confirmed.");
+        if (!out) throw new ApiError(409, "Confirm pickup first.");
+        if (j.due > 0 && !j.paid_at) throw new ApiError(409, "Payment isn't verified yet. Collect it by QR first.");
+        // every home delivery and every plan day is confirmed with the customer's OTP
+        if (j.type === "ORDER" || j.type === "SUBSCRIPTION") {
+          const rec = d.otps?.[j.id];
+          if (!rec || rec.used) throw new ApiError(409, "No active OTP. Send a new OTP to the customer.", undefined, "OTP_MISSING");
+          if (j.otp_status === "LOCKED" || rec.attempts >= OTP_MAX_ATTEMPTS) throw new ApiError(429, "Too many wrong attempts. Send a new OTP to the customer.", undefined, "OTP_LOCKED");
+          if (rec.expires < Date.now()) throw new ApiError(410, "This OTP has expired. Send a new OTP to the customer.", undefined, "OTP_EXPIRED");
+          if (!bcrypt.compareSync(String(b.otp ?? "").replace(/\D/g, ""), rec.hash)) {
+            rec.attempts += 1;
+            const left = OTP_MAX_ATTEMPTS - rec.attempts;
+            if (left <= 0) j.otp_status = "LOCKED";
+            jobAudit(by, j, "wrong OTP entered");
+            commit();
+            throw new ApiError(422, left > 0 ? `Incorrect OTP. ${left} attempt${left === 1 ? "" : "s"} left.` : "Too many wrong attempts. Send a new OTP to the customer.", { otp: "Incorrect" }, left > 0 ? "OTP_WRONG" : "OTP_LOCKED");
+          }
+          rec.used = true;
+          Object.assign(j, { otp_status: "VERIFIED", otp_verified_at: stamp() });
+        }
+        Object.assign(j, { status: "DELIVERED", delivered_at: stamp(), delivered_by: p.name });
+        jobAudit(by, j, j.otp_status === "VERIFIED" ? "OTP verified · delivery confirmed" : "delivery confirmed");
+        if (j.type === "ORDER") orderLog(d, j.source_id, `OTP verified · delivered by ${p.name}`, by);
+      }
       syncSource(d, j);
+      // notifications go out only after the delivery itself is recorded
+      if (resource === "deliver") afterDelivery(d, j, p.name);
       commit();
       return jobForPartner(j, p.id);
+    }
+
+    /* ---------- payment gateway ---------- */
+    case "POST /gateway/qr-webhook": {
+      // Stands in for the gateway's signed webhook (e.g. Razorpay qr_code.credited). A real server verifies the
+      // webhook signature here; the partner app can never call this.
+      const j = settleQr(d, String(b.payreq ?? ""), b.status === "FAILED" ? "FAILED" : "PAID", String(b.gateway_ref ?? uid("pay")));
+      commit();
+      return { ok: true, status: j.qr?.status };
     }
 
     /* ---------- admin ---------- */
@@ -799,27 +1062,81 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
     }
     case "GET /admin/orders": requireAdmin(adminToken);
       prepareJobs(); commit();
-      return (d.orders ?? []).map((o) => ({ ...o, job: (d.jobs ?? []).find((j) => j.type === "ORDER" && j.source_id === o.ref) ?? null }));
+      return (d.orders ?? []).map((o) => ({
+        ...o, job: (d.jobs ?? []).find((j) => j.type === "ORDER" && j.source_id === o.ref) ?? null,
+        plans: (d.subs ?? []).filter((s) => s.order_ref === o.ref).map((s) => ({ id: s.id, ref: s.ref, partner_id: s.partner_id ?? null, branch_id: s.branch_id })),
+      }));
     case "PUT /admin/orders/:id": {
       const by = requireAdmin(adminToken);
       const o = (d.orders ?? []).find((x) => x.ref === id);
       if (!o) throw new ApiError(404, "Order not found");
-      if (b.action !== "cancel") throw new ApiError(422, "Unknown action");
       const j = (d.jobs ?? []).find((x) => x.type === "ORDER" && x.source_id === o.ref);
-      if (j && j.status !== "READY") throw new ApiError(409, "A delivery partner already has this order.");
-      o.status = "cancelled";
-      if (j) d.jobs = d.jobs!.filter((x) => x !== j);
-      audit(by, "order", o.ref, "cancel", null, null);
+      if (b.action === "confirm") {
+        if (o.status !== "pending") throw new ApiError(409, "Only pending orders can be confirmed.");
+        o.status = "confirmed"; o.confirmed_at = stamp();
+        orderLog(d, o.ref, o.payment_status === "ONLINE" ? "confirmed · online payment verified" : "confirmed", by);
+        if (o.payment_status === "ONLINE") o.payment_status = "VERIFIED"; // the admin has checked the UPI payment
+        createOrderJob(d, o);
+        const job = d.jobs?.find((x) => x.type === "ORDER" && x.source_id === o.ref);
+        if (job && b.partner_id) assignJob(d, job, String(b.partner_id), by);
+        audit(by, "order", o.ref, "confirm", null, null);
+      } else if (b.action === "reject") {
+        if (o.status !== "pending") throw new ApiError(409, "Only pending orders can be rejected.");
+        const reason = String(b.reason ?? "").trim();
+        if (!reason) throw new ApiError(422, "Give a reason for rejecting the order.", { reason: "Required" });
+        Object.assign(o, { status: "rejected", rejected_at: stamp(), reject_reason: reason });
+        // a rejected plan order never starts: stop its plan before the first day
+        for (const s of (d.subs ?? []).filter((x) => x.order_ref === o.ref && !x.cancelled_at)) Object.assign(s, { cancelled_at: stamp(), cancel_end_date: addDays(s.start_date, -1) });
+        orderLog(d, o.ref, "rejected", by, reason);
+        audit(by, "order", o.ref, "reject", null, reason);
+      } else if (b.action === "assign") {
+        if (!j) throw new ApiError(409, "Confirm the order before assigning a partner.");
+        assignJob(d, j, String(b.partner_id ?? ""), by);
+      } else if (b.action === "cancel") {
+        if (j && j.status !== "READY" && j.status !== "ASSIGNED") throw new ApiError(409, j.status === "CANCELLED" ? "Already cancelled." : "The partner has already picked up this order.");
+        o.status = "cancelled";
+        orderLog(d, o.ref, "cancelled", by);
+        if (j) {
+          // the delivery record is kept for history, closed as cancelled
+          const open = j.assignments?.find((a) => !a.until);
+          if (open) open.until = stamp();
+          Object.assign(j, { status: "CANCELLED", cancelled_at: stamp() });
+          jobAudit(by, j, "cancelled");
+        }
+        audit(by, "order", o.ref, "cancel", null, null);
+      } else throw new ApiError(422, "Unknown action");
       commit();
       return o;
     }
+    case "PUT /admin/jobs/:id": {
+      // assign a delivery (order, plan day or event) to a partner, or take it back
+      const by = requireAdmin(adminToken);
+      const j = (d.jobs ?? []).find((x) => x.id === id);
+      if (!j) throw new ApiError(404, "Delivery not found");
+      assignJob(d, j, String(b.partner_id ?? ""), by);
+      commit();
+      return j;
+    }
     case "GET /admin/subscriptions": requireAdmin(adminToken);
-      return (d.subs ?? []).map((s) => viewSub(s, today));
+      // with the paying order's state, so plans waiting for confirmation (or rejected) are shown as such
+      return (d.subs ?? []).map((s) => {
+        const o = d.orders?.find((x) => x.ref === s.order_ref);
+        return { ...viewSub(s, today), order_status: o?.status ?? "confirmed", payment_status: o?.payment_status ?? null };
+      });
     case "PUT /admin/subscriptions/:id": {
       const by = requireAdmin(adminToken);
       const s = (d.subs ?? []).find((x) => x.id === id);
       if (!s) throw new ApiError(404, "Plan not found");
-      if (b.action === "notes") { s.notes = String(b.notes ?? "").slice(0, 2000); audit(by, "subscription", s.ref, "notes", null, null); }
+      if (b.action === "assign") {
+        // the plan's partner: today's undelivered delivery moves to them too, later days are created assigned
+        const pid = String(b.partner_id ?? "");
+        const p = pid ? (d.partners ?? []).find((x) => x.id === pid && x.active) : undefined;
+        if (pid && !p) throw new ApiError(422, "Choose an active delivery partner.");
+        s.partner_id = p?.id ?? null;
+        audit(by, "subscription", s.ref, p ? `plan partner: ${p.name}` : "plan partner removed", null, null);
+        for (const j of (d.jobs ?? []).filter((x) => x.type === "SUBSCRIPTION" && x.source_id === s.id && (x.status === "READY" || x.status === "ASSIGNED"))) assignJob(d, j, p?.id ?? "", by);
+        orderLog(d, s.order_ref, p ? `plan partner: ${p.name} (${p.mobile})` : "plan partner removed", by);
+      } else if (b.action === "notes") { s.notes = String(b.notes ?? "").slice(0, 2000); audit(by, "subscription", s.ref, "notes", null, null); }
       else { wrap(() => subscriptionAction(s, b.action as "pause" | "resume" | "cancel", today)); audit(by, "subscription", s.ref, String(b.action), null, null); }
       commit();
       return viewSub(s, today);

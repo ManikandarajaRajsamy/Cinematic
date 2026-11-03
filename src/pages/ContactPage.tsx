@@ -101,14 +101,14 @@ export function ContactPage() {
         </form>
       </div>
       <style>{`
-        .refer-note { padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--border-bright); background: linear-gradient(150deg, rgba(255, 122, 24, 0.12), rgba(0, 26, 22, 0.4)); display: flex; flex-direction: column; gap: 10px; animation: fadeInUp 400ms var(--ease); }
+        .refer-note { padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--border-bright); background: linear-gradient(150deg, rgba(0, 91, 79, 0.12), #FFFFFF); display: flex; flex-direction: column; gap: 10px; animation: fadeInUp 400ms var(--ease); }
         .refer-head { display: flex; align-items: center; gap: 10px; color: var(--accent-gold-bright); }
         .refer-head strong { font-family: var(--font-display); font-size: 1.15rem; font-weight: 500; color: var(--text); }
         .refer-note p { font-size: var(--font-sm); }
         .refer-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); }
         .refer-note ol { list-style: none; display: flex; flex-direction: column; gap: 8px; }
         .refer-note li { display: flex; gap: 10px; align-items: flex-start; font-size: var(--font-sm); color: var(--text-muted); }
-        .refer-note li span { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; font-family: var(--font-mono); font-size: 11px; color: #1d0c00; background: var(--accent-gold); }
+        .refer-note li span { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; font-family: var(--font-mono); font-size: 11px; color: #FFFFFF; background: var(--accent-gold); }
         .refer-who { color: var(--text) !important; }
         .refer-fine { font-size: var(--font-xs) !important; color: var(--text-dim) !important; }
         .contact-grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--sp-12); align-items: start; }

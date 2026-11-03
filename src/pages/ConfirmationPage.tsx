@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useLocation, Link } from "react-router-dom";
-import { CheckCircle2, Package, MapPin, Clock, ArrowRight, Truck } from "lucide-react";
-import { useStore, DemoOrder } from "@/store/store";
+import { CheckCircle2, MapPin, Clock, ArrowRight, Truck } from "lucide-react";
+import { useStore } from "@/store/store";
 
 export function ConfirmationPage() {
   const { state } = useStore();

@@ -1,17 +1,23 @@
 // Client calls for operations: subscriptions, delivery partners, deliveries board, cash, dashboard, visits.
 import { request } from "./client";
 import type { CalendarDay, Job, ServerOrder, Subscription, Partner, Handover, Visit } from "./opsServer";
+import type { CustomerOrderView, CustomerSubView } from "./mockServer";
 
-export type { CalendarDay, Job, ServerOrder };
+export type { CalendarDay, Job, ServerOrder, CustomerOrderView, CustomerSubView };
 export type SubView = Subscription & {
   calendar: CalendarDay[]; delivered: number; failed: number; paused_days: number; remaining: number;
   end_date: string | null; status: "ACTIVE" | "PAUSED" | "CANCELLED" | "COMPLETED";
 };
+export type AdminSub = SubView & { order_status: ServerOrder["status"]; payment_status: ServerOrder["payment_status"] | null };
 export type PartnerView = Omit<Partner, "password_hash" | "session_version">;
 export type AdminJob = Job & { partner_name: string };
-export type AdminOrder = ServerOrder & { job: Job | null };
+export type AdminOrder = ServerOrder & { job: Job | null; plans: { id: string; ref: string; partner_id: string | null; branch_id: string }[] };
 export interface CashRow { partner_id: string; name: string; mobile: string; branch_id: string; cash_today: number; upi_today: number; handed_over: number; pending: number; handovers: Handover[] }
-export interface PartnerJobs { available: Job[]; mine: Job[]; history: Job[]; summary: PartnerSummary; online: boolean }
+export interface PartnerPlan {
+  id: string; ref: string; status: "ACTIVE" | "PAUSED"; customer: string; mobile: string; area: string; address: string; item: string;
+  start_date: string; end_date: string | null; delivered: number; remaining: number; next_date: string | null; today: Job["status"] | null;
+}
+export interface PartnerJobs { mine: Job[]; history: (Job & { reassigned?: boolean })[]; summary: PartnerSummary; plans: PartnerPlan[] }
 export interface PartnerSummary { picked: number; delivered: number; cash_today: number; cash_to_hand_over: number }
 export interface DashboardData {
   today: string; orders: ServerOrder[]; subs: SubView[]; jobs: Job[]; visits: Visit[];
@@ -22,6 +28,17 @@ export interface DashboardData {
   branches: { id: string; name: string }[];
 }
 
+/** Orders a guest has looked up (order ID + mobile), kept on this device so their tracking history stays. */
+const TRACKED_KEY = "ssp-tracked-orders";
+export const guestTracking = {
+  get: (): { ref: string; mobile: string }[] => { try { return JSON.parse(localStorage.getItem(TRACKED_KEY) || "[]"); } catch { return []; } },
+  add: (ref: string, mobile: string) => {
+    const list = guestTracking.get().filter((t) => t.ref !== ref);
+    try { localStorage.setItem(TRACKED_KEY, JSON.stringify([{ ref, mobile }, ...list].slice(0, 20))); } catch { /* private mode: lasts for this visit */ }
+  },
+  remove: (ref: string) => { try { localStorage.setItem(TRACKED_KEY, JSON.stringify(guestTracking.get().filter((t) => t.ref !== ref))); } catch { /* ignore */ } },
+};
+
 const PARTNER_KEY = "ssp-partner-session";
 export const partnerSession = {
   get: () => { try { return JSON.parse(localStorage.getItem(PARTNER_KEY) || "null") as { token: string } | null; } catch { return null; } },
@@ -31,29 +48,39 @@ export const partnerSession = {
 
 export const ops = {
   // customer
-  orderStatuses: (refs: string[]) => request<{ ref: string; status: ServerOrder["status"]; job: { status: Job["status"]; delivered_at: string | null } | null }[]>("POST", "/api/orders/status", { refs }),
-  mySubscriptions: (orderRefs: string[]) => request<SubView[]>("POST", "/api/subscriptions/mine", { orderRefs }),
+  orderStatuses: (refs: string[]) => request<CustomerOrderView[]>("POST", "/api/orders/status", { refs, tracked: guestTracking.get() }),
+  lookupOrder: (ref: string, mobile: string) => request<CustomerOrderView>("POST", "/api/orders/lookup", { ref, mobile }),
+  resendCustomerOtp: (ref: string, refs: string[]) => request<CustomerOrderView>("POST", "/api/orders/otp-resend", { ref, refs, tracked: guestTracking.get() }),
+  mySubscriptions: (orderRefs: string[]) => request<CustomerSubView[]>("POST", "/api/subscriptions/mine", { orderRefs }),
+  resendPlanOtp: (id: string, orderRefs: string[]) => request<CustomerSubView>("POST", "/api/subscriptions/otp-resend", { id, orderRefs }),
   subscriptionAction: (id: string, action: "pause" | "resume" | "cancel", orderRefs: string[]) => request<SubView>("PUT", "/api/subscriptions/action", { id, action, orderRefs }),
   trackVisit: (vid: string, path: string) => request("POST", "/api/visits/track", { vid, path }),
 
   // delivery partner
   partnerLogin: (mobile: string, password: string) => request<{ token: string; partner: PartnerView }>("POST", "/api/partner/login", { mobile, password }),
   partnerMe: () => request<{ partner: PartnerView; summary: PartnerSummary; branch: string }>("GET", "/api/partner/me"),
-  partnerOnline: (online: boolean) => request<{ online: boolean }>("PUT", "/api/partner/online", { online }),
   partnerJobs: () => request<PartnerJobs>("GET", "/api/partner/jobs"),
-  pick: (id: string) => request<Job>("POST", "/api/partner/pick", { id }),
-  start: (id: string) => request<Job>("POST", "/api/partner/start", { id }),
-  release: (id: string, reason: string) => request<Job>("POST", "/api/partner/release", { id, reason }),
-  deliver: (id: string, p: { method?: "CASH" | "UPI"; amount?: number; reason?: string; location: { lat: number; lng: number } | null }) => request<Job>("POST", "/api/partner/deliver", { id, ...p }),
-  fail: (id: string, p: { reason: string; photo?: string; location: { lat: number; lng: number } | null }) => request<Job>("POST", "/api/partner/fail", { id, ...p }),
+  // the only three things a partner can do
+  confirmPickup: (id: string) => request<Job>("POST", "/api/partner/pickup", { id }),
+  openQr: (id: string) => request<Job>("POST", "/api/partner/qr", { id }),
+  qrStatus: (id: string) => request<Job>("POST", "/api/partner/qr-status", { id }),
+  completeDelivery: (id: string, otp: string) => request<Job>("POST", "/api/partner/deliver", { id, otp }),
+  resendOtp: (id: string) => request<Job>("POST", "/api/partner/otp-resend", { id }),
+  skipPlanDay: (id: string, reason: string) => request<Job>("POST", "/api/partner/skip", { id, reason }),
+  // demo stand-in for the gateway webhook; never called by the partner app itself
+  gatewayWebhook: (payreq: string, status: "PAID" | "FAILED") => request<{ ok: boolean }>("POST", "/api/gateway/qr-webhook", { payreq, status }),
 
   // admin
   partners: () => request<(PartnerView & { summary: PartnerSummary })[]>("GET", "/api/admin/partners"),
   savePartner: (p: Partial<PartnerView> & { password?: string }, id?: string) => request<PartnerView>(id ? "PUT" : "POST", id ? `/api/admin/partners/${id}` : "/api/admin/partners", p),
   orders: () => request<AdminOrder[]>("GET", "/api/admin/orders"),
   cancelOrder: (ref: string) => request<ServerOrder>("PUT", `/api/admin/orders/${ref}`, { action: "cancel" }),
-  subscriptions: () => request<SubView[]>("GET", "/api/admin/subscriptions"),
+  confirmOrder: (ref: string, partner_id?: string) => request<ServerOrder>("PUT", `/api/admin/orders/${ref}`, { action: "confirm", partner_id }),
+  rejectOrder: (ref: string, reason: string) => request<ServerOrder>("PUT", `/api/admin/orders/${ref}`, { action: "reject", reason }),
+  assignJob: (jobId: string, partner_id: string) => request<Job>("PUT", `/api/admin/jobs/${jobId}`, { partner_id }),
+  subscriptions: () => request<AdminSub[]>("GET", "/api/admin/subscriptions"),
   adminSubAction: (id: string, action: "pause" | "resume" | "cancel" | "notes", notes?: string) => request<SubView>("PUT", `/api/admin/subscriptions/${id}`, { action, notes }),
+  assignPlanPartner: (id: string, partner_id: string) => request<SubView>("PUT", `/api/admin/subscriptions/${id}`, { action: "assign", partner_id }),
   jobs: () => request<AdminJob[]>("GET", "/api/admin/jobs"),
   cash: () => request<CashRow[]>("GET", "/api/admin/cash"),
   receiveCash: (partner_id: string, amount: number) => request("POST", "/api/admin/cash", { partner_id, amount }),

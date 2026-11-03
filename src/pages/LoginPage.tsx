@@ -87,7 +87,7 @@ export function LoginPage() {
         <PourVideo />
         <div className="lg-overlay" />
         <div className="lg-brand">
-          <Link to="/" aria-label="Sri Sastha Paruthipaal home"><img src="/brand/logo.png" alt="Sri Sastha Paruthipaal logo" /></Link>
+          <Link to="/" aria-label="Sri Sastha Paruthipaal home"><img src="/brand/logo.webp" alt="Sri Sastha Paruthipaal logo" /></Link>
           <strong>Sri Sastha Paruthipaal</strong>
           <span>Since 1999 · Madurai</span>
         </div>
@@ -159,24 +159,24 @@ export function LoginPage() {
       </div>
 
       <style>{`
-        .lg { min-height: 100vh; min-height: 100svh; display: grid; grid-template-columns: 55fr 45fr; background: #001A16; position: relative; z-index: 1; }
+        .lg { min-height: 100vh; min-height: 100svh; display: grid; grid-template-columns: 55fr 45fr; background: var(--cream); position: relative; z-index: 1; }
         .lg-visual { position: relative; overflow: hidden; }
         .lg-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 74% 58%; }
         .lg-overlay { position: absolute; inset: 0; background: rgba(11, 46, 34, 0.6); }
         .lg-brand { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; }
         .lg-brand img { width: 140px; height: auto; filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.5)); }
         .lg-brand strong { font-family: var(--font-display); font-size: clamp(1.6rem, 2.6vw, 2.4rem); font-weight: 500; letter-spacing: -0.03em; color: #FAF7F0; text-shadow: 0 2px 20px rgba(0, 0, 0, 0.5); margin-top: 8px; }
-        .lg-brand span { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent-gold-bright); }
-        .lg-panel { display: flex; align-items: center; justify-content: center; padding: 48px clamp(20px, 5vw, 72px); background: radial-gradient(80% 60% at 70% 20%, rgba(0, 91, 79, 0.35), transparent 70%), #001A16; }
+        .lg-brand span { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); }
+        .lg-panel { display: flex; align-items: center; justify-content: center; padding: 48px clamp(20px, 5vw, 72px); background: radial-gradient(80% 60% at 70% 20%, rgba(0, 91, 79, 0.12), transparent 70%), var(--cream); }
         .lg-form-wrap { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 20px; }
         .lg-toggle { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 999px; border: 1px solid var(--border-strong); background: rgba(250, 247, 240, 0.04); }
         .lg-toggle button { padding: 11px; border-radius: 999px; font-weight: 600; font-size: var(--font-sm); color: var(--text-muted); transition: background 250ms, color 250ms; }
-        .lg-toggle button.on { background: var(--accent-gold); color: #1d0c00; box-shadow: 0 4px 18px rgba(255, 122, 24, 0.35); }
+        .lg-toggle button.on { background: var(--accent-gold); color: #FFFFFF; box-shadow: 0 4px 18px rgba(0, 91, 79, 0.35); }
         .lg-title { font-family: var(--font-display); font-size: clamp(1.8rem, 3vw, 2.4rem); font-weight: 400; letter-spacing: -0.035em; }
         .lg-lead { color: var(--text-muted); line-height: 1.6; }
         .lg-form { display: flex; flex-direction: column; gap: 16px; }
-        .lg-input { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: rgba(0, 36, 31, 0.8); transition: border-color 200ms, box-shadow 200ms; }
-        .lg-input:focus-within { border-color: var(--accent-gold); box-shadow: 0 0 0 3px rgba(255, 122, 24, 0.18); }
+        .lg-input { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: #FFFFFF; transition: border-color 200ms, box-shadow 200ms; }
+        .lg-input:focus-within { border-color: var(--accent-gold); box-shadow: 0 0 0 3px rgba(0, 91, 79, 0.18); }
         .lg-input > svg { color: var(--text-dim); flex-shrink: 0; }
         .lg-input input { flex: 1; min-width: 0; padding: 14px 0; background: none; border: none; color: var(--text); font-size: var(--font-base); }
         .lg-prefix { font-weight: 600; color: var(--text-muted); padding-right: 10px; border-right: 1px solid var(--border-strong); }

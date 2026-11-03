@@ -70,12 +70,12 @@ export function CartPage() {
                     <span className="cart-line-variant">{v.label} · ₹{v.price}</span>
                     <div className="cart-line-controls">
                       <div className="qty">
-                        <button onClick={() => updateQty(line.productId, line.variantId, line.qty - 1)} aria-label="Decrease"><Minus size={14} /></button>
+                        <button onClick={() => updateQty(line.productId, line.variantId, line.qty - 1, line.subscription)} aria-label="Decrease"><Minus size={14} /></button>
                         <span>{line.qty}</span>
-                        <button onClick={() => updateQty(line.productId, line.variantId, line.qty + 1)} aria-label="Increase"><Plus size={14} /></button>
+                        <button onClick={() => updateQty(line.productId, line.variantId, line.qty + 1, line.subscription)} aria-label="Increase"><Plus size={14} /></button>
                       </div>
                       <span className="cart-line-subtotal">₹{subtotal}</span>
-                      <button className="cart-line-remove" onClick={() => removeFromCart(line.productId, line.variantId)} aria-label="Remove">
+                      <button className="cart-line-remove" onClick={() => removeFromCart(line.productId, line.variantId, line.subscription)} aria-label="Remove">
                         <Trash2 size={16} />
                       </button>
                     </div>

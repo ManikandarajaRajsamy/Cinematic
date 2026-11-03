@@ -4,11 +4,13 @@ import { StoreProvider } from "@/store/store";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 import { ToastHost } from "@/components/Toast";
-import { ScrollProgress } from "@/components/ScrollProgress";
 import { HomePage } from "@/pages/HomePage";
 import "@/components/components.css";
-import { BackgroundVideo } from "@/components/BackgroundVideo";
+import "@/pages/home.css";
+import { useScrollMotion, type MotionConfig } from "@/hooks/useScrollMotion";
+import { LangProvider } from "@/i18n";
 import { useVisitTracking } from "@/hooks/useVisitTracking";
+import { HeroVideo } from "@/components/HeroVideo";
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
 const AdminPage = lazy(() => import("@/pages/AdminPage").then((m) => ({ default: m.AdminPage })));
 const PartnerPage = lazy(() => import("@/pages/PartnerPage").then((m) => ({ default: m.PartnerPage })));
@@ -28,26 +30,52 @@ const ProductDetailPage = lazy(() => import("@/pages/ProductDetailPage").then((m
 const ProductsPage = lazy(() => import("@/pages/ProductsPage").then((m) => ({ default: m.ProductsPage })));
 const OurStoryPage = lazy(() => import("@/pages/OurStoryPage").then((m) => ({ default: m.OurStoryPage })));
 
+/** New page: start at the top, or at the section a link names (/#services). */
 function ScrollToTop() {
+  const { pathname, hash } = useLocation();
+  useEffect(() => {
+    if (!hash) { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); return; }
+    const t = window.setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: "smooth" }), 60);
+    return () => window.clearTimeout(t);
+  }, [pathname, hash]);
+  return null;
+}
+
+// Customer pages share the homepage's motion: headings rise from a mask, text slides in, cards rise into focus,
+// photos open up once they enter. Only the partner and admin apps stay still.
+const PAGE_MOTION: MotionConfig = {
+  reveal: [
+    [".po-media, .os-portrait", "rv-media"],
+    [".card, .pc, .pb-plan, .pb-form, .pb-sum, .bd-row, .pg-more-card, .mp-card, .ohl li, .ev-option", "rv-card"],
+    ["main h1, main h2.display-2, main h2.display-3, main h2.title-xl, main h2.title-lg", "rv-line"],
+    [".eyebrow, .lead, .pg-crumb, .pg-bar, .sec-head > p, .po-body > :not(h2), .os-text > p", "rv-text"],
+  ],
+  parallax: [[".po-media img", -0.05, 0.05], [".os-portrait", -0.05]],
+  tilt: ".pc, .pb-plan, .pg-more-card, .mp-card",
+};
+const STILL = ["/partner", "/admin"];
+
+function PageMotion() {
   const { pathname } = useLocation();
-  useEffect(() => { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); }, [pathname]);
+  const still = pathname === "/" || STILL.some((p) => pathname.startsWith(p));
+  useScrollMotion(still ? "#no-motion" : "main", PAGE_MOTION, pathname);
   return null;
 }
 
 function Layout() {
   const { pathname } = useLocation();
-  // own full-screen layouts: sign-in, password reset and the delivery partner app
-  const bare = pathname === "/login" || pathname.startsWith("/reset-password") || pathname.startsWith("/partner");
-  // the homepage brings its own header and footer
+  // own full-screen layouts: sign-in, password reset, the delivery partner app and the admin workspace
+  const bare = pathname === "/login" || pathname.startsWith("/reset-password") || pathname.startsWith("/partner") || pathname.startsWith("/admin");
+  // the homepage hero runs under the header; other pages start below it
   const home = pathname === "/";
   useVisitTracking();
   return (
     <>
-      {/* one fixed video behind every screen; it lives here so it keeps playing across page changes */}
-      {!bare && <BackgroundVideo dim={!home} />}
-      {!home && <ScrollProgress />}
-      {!bare && !home && <Navbar />}
-      <main className={bare || home ? "" : "page-enter"} style={{ paddingTop: bare || home ? 0 : "var(--nav-h)" }}>
+      {/* one pour film, fixed behind every customer screen; it lives here so it keeps playing across pages */}
+      {!bare && <div className="home-film" aria-hidden="true"><HeroVideo /></div>}
+      {!bare && <Navbar />}
+      <PageMotion />
+      <main className={bare ? "" : home ? "on-film" : "on-film veil"} style={{ paddingTop: bare || home ? 0 : "var(--nav-h)" }}>
         <Suspense fallback={<div style={{ minHeight: "100vh" }} />}>
         <Routes>
           <Route path="/" element={<HomePage />} />
@@ -73,7 +101,7 @@ function Layout() {
         </Routes>
         </Suspense>
       </main>
-      {!bare && !home && <Footer />}
+      {!bare && <Footer />}
       <ToastHost />
     </>
   );
@@ -82,10 +110,12 @@ function Layout() {
 export default function App() {
   return (
     <StoreProvider>
-      <BrowserRouter>
-        <ScrollToTop />
-        <Layout />
-      </BrowserRouter>
+      <LangProvider>
+        <BrowserRouter>
+          <ScrollToTop />
+          <Layout />
+        </BrowserRouter>
+      </LangProvider>
     </StoreProvider>
   );
 }

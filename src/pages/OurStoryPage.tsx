@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, BadgeCheck } from "lucide-react";
 import { useReveal } from "@/hooks/useReveal";
+import { LOGO_SRC } from "@/components/BrandLogo";
 
 // The proprietor's photo. Save it as public/media/owner.jpg; until then a monogram is shown.
 const OWNER_PHOTO = "/media/owner.jpg";
@@ -11,7 +12,7 @@ function OwnerPortrait() {
   return (
     <figure className="os-portrait">
       {missing ? (
-        <div className="os-monogram" aria-label="K. Rajsamy"><span>KR</span></div>
+        <div className="os-monogram"><img src={LOGO_SRC} alt="The Sri Sastha Paruthipaal roundel, with the founder's photograph" /></div>
       ) : (
         <img src={OWNER_PHOTO} alt="Mr. K. Rajsamy, proprietor of Sri Sastha Paruthipaal" onError={() => setMissing(true)} />
       )}
@@ -62,12 +63,12 @@ export function OurStoryPage() {
       <style>{`
         .os-grid { display: grid; grid-template-columns: minmax(260px, 0.8fr) 1.2fr; gap: var(--sp-16); align-items: center; }
         .os-portrait { margin: 0; position: relative; border-radius: var(--radius-xl); overflow: hidden; border: 1px solid var(--border-strong); aspect-ratio: 4 / 5; background: var(--bg-card); box-shadow: var(--shadow-lg); }
-        .os-portrait::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgba(0, 26, 22, 0.92)); pointer-events: none; }
+        .os-portrait::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgba(41, 41, 35, 0.85)); pointer-events: none; }
         .os-portrait img { width: 100%; height: 100%; object-fit: cover; }
         .os-portrait figcaption { position: absolute; left: var(--sp-6); bottom: var(--sp-6); z-index: 1; display: flex; flex-direction: column; gap: 4px; }
         .os-portrait figcaption strong { font-family: var(--font-display); font-size: 1.8rem; font-weight: 500; letter-spacing: -0.03em; }
-        .os-monogram { width: 100%; height: 100%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, rgba(255, 122, 24, 0.18), transparent 60%), var(--bg-card); }
-        .os-monogram span { font-family: var(--font-display); font-size: clamp(5rem, 12vw, 9rem); font-weight: 300; letter-spacing: -0.06em; color: rgba(250, 247, 240, 0.25); }
+        .os-monogram { width: 100%; height: 100%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, rgba(0, 91, 79, 0.18), transparent 60%), var(--bg-card); }
+        .os-monogram img { width: 78%; height: auto; }
         .os-grey { color: var(--text-dim); }
         .os-text p:not(.lead) { font-size: var(--font-md); line-height: 1.75; }
         .os-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; }

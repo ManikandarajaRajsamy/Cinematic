@@ -25,9 +25,20 @@ export interface ServerOrder {
   items: { name: string; size: string; qty: number; lineTotal: number; plan: boolean; planDays?: number }[];
   subtotal: number; discount: number; delivery_fee: number; total: number; // paise
   payment: PaymentMethod;
-  status: "placed" | "confirmed" | "preparing" | "out_for_delivery" | "delivered" | "cancelled";
+  delivery_date?: string; delivery_slot?: string;
+  /** pending → confirmed (by admin) → picked_up → delivered (by the assigned partner); or rejected / cancelled */
+  status: OrderStatus;
+  /** ONLINE: paid by UPI at checkout, waiting for the admin to verify; VERIFIED: admin checked it;
+   *  DUE: cash on delivery; COLLECTED: the partner confirmed collecting it */
+  payment_status?: "ONLINE" | "VERIFIED" | "DUE" | "COLLECTED";
+  confirmed_at?: string; rejected_at?: string; reject_reason?: string;
+  /** gateway reference of the online payment at checkout, or of the QR payment at the door */
+  payment_ref?: string; qr_ref?: string; paid_at?: string;
+  /** every step of the order, oldest first, for the admin's order history */
+  history?: { at: string; action: string; by: string; note?: string }[];
 }
-export interface DayRecord { status: "DELIVERED" | "FAILED"; partner?: string; time?: string; reason?: string }
+export type OrderStatus = "pending" | "confirmed" | "picked_up" | "delivered" | "rejected" | "cancelled";
+export interface DayRecord { status: "DELIVERED" | "FAILED"; partner?: string; time?: string; reason?: string; otp_verified_at?: string; job_id?: string }
 export interface Subscription {
   id: string; ref: string; created_at: string; order_ref: string;
   customer: { mobile: string; name: string; email: string };
@@ -39,8 +50,11 @@ export interface Subscription {
   pauses: { from: string; to: string | null }[];
   cancelled_at: string | null; cancel_end_date: string | null;
   notes: string;
+  /** the partner the admin chose for this plan: each day's delivery is assigned to them */
+  partner_id?: string | null;
 }
-export type JobStatus = "READY" | "PICKED" | "OUT" | "DELIVERED" | "FAILED";
+/** READY: waiting for the admin to assign a partner; ASSIGNED → PICKED → DELIVERED by that partner. OUT and FAILED are older records. */
+export type JobStatus = "READY" | "ASSIGNED" | "PICKED" | "OUT" | "DELIVERED" | "FAILED" | "CANCELLED";
 export interface Job {
   id: string; type: "ORDER" | "SUBSCRIPTION" | "EVENT"; ref: string; source_id: string; date: string;
   branch_id: string; area: string; distance_km: number | null;
@@ -50,9 +64,16 @@ export interface Job {
   sub_info?: { day_no: number; plan_days: number };
   event_info?: { occasion: string; service: string; time: string; venue: string; advance: number; balance: number; litres: number };
   status: JobStatus; partner_id: string | null;
-  picked_at?: string; out_at?: string; delivered_at?: string; failed_at?: string; fail_reason?: string; fail_photo?: string;
+  assigned_at?: string; paid_at?: string; picked_at?: string; out_at?: string; delivered_at?: string; failed_at?: string; fail_reason?: string; fail_photo?: string;
   collected?: { method: "CASH" | "UPI"; amount: number; reason?: string };
   location?: { lat: number; lng: number } | null;
+  /** QR payment at the door: the open payment request (amount fixed by the server) and its gateway result */
+  qr?: { id: string; amount: number; status: "WAITING" | "PROCESSING" | "PAID" | "FAILED"; created_at: string; gateway_ref?: string };
+  /** delivery OTP state; the code itself is never stored on the job */
+  otp_status?: "SENT" | "VERIFIED" | "LOCKED"; otp_sent_at?: string; otp_verified_at?: string; delivered_by?: string;
+  /** every partner assignment, kept permanently: the open one (no `until`) is the current partner */
+  assignments?: { partner_id: string; name: string; mobile: string; at: string; until?: string; by: string }[];
+  cancelled_at?: string;
   history: { at: string; action: string; by: string; note?: string }[];
 }
 export interface Partner {
@@ -74,6 +95,17 @@ export interface OpsDb {
   partnerSessions?: Record<string, { partner_id: string; sv: number; expires: number }>;
   handovers?: Handover[];
   visits?: Visit[];
+  /** delivery OTPs by job id: server-only, never returned to a partner or admin */
+  otps?: Record<string, { hash: string; expires: number; attempts: number; used: boolean; code?: string /* pre-hash records, migrated */ }>;
+  /** messages sent to customers (stands in for the SMS provider): order confirmations and delivery OTPs */
+  outbox?: {
+    at: string; mobile: string; ref: string; job_id?: string; text: string; otp?: string;
+    /** kind of message, a key that stops the same event being sent twice, and per-channel results */
+    kind?: "OTP" | "CONFIRMED" | "DELIVERED" | "PLAN_DAY" | "PLAN_DONE"; key?: string; title?: string;
+    channels?: { in_app: "DELIVERED"; sms: "SENT" | "FAILED" | "NOT_CONFIGURED" };
+  }[];
+  /** QR payment requests by id: server-only gateway records */
+  payreqs?: Record<string, { job_id: string; amount: number; status: "WAITING" | "PROCESSING" | "PAID" | "FAILED"; created_at: string; gateway_ref?: string }>;
 }
 
 export class OpsError extends Error {
@@ -82,7 +114,7 @@ export class OpsError extends Error {
 
 /* ---------------- subscriptions: the delivery calendar ---------------- */
 export type DayStatus = "DELIVERED" | "FAILED" | "PAUSED" | "UPCOMING" | "NOT_RECORDED";
-export interface CalendarDay { date: string; status: DayStatus; partner?: string; time?: string; reason?: string }
+export interface CalendarDay { date: string; status: DayStatus; partner?: string; time?: string; reason?: string; otp_verified_at?: string }
 
 /**
  * Walks the plan day by day. Paused and failed days are not counted, so the plan moves forward:
@@ -104,13 +136,15 @@ export function planCalendar(s: Subscription, today = istDate()) {
     const rec = s.records[d];
     if (rec?.status === "FAILED") { days.push({ ...rec, date: d, status: "FAILED" }); failed++; continue; }
     if (rec?.status === "DELIVERED") { days.push({ ...rec, date: d, status: "DELIVERED" }); delivered++; counted++; continue; }
+    // a past day with no delivery recorded is not counted: the plan runs on until every paid delivery is made
     days.push({ date: d, status: d < today ? "NOT_RECORDED" : "UPCOMING" });
-    counted++;
+    if (d >= today) counted++;
   }
   const remaining = s.plan_days - delivered;
   const endDate = openPause ? null : days.length ? days[days.length - 1].date : s.start_date;
   let status: "ACTIVE" | "PAUSED" | "CANCELLED" | "COMPLETED";
-  if (delivered >= s.plan_days || (s.cancel_end_date && today > s.cancel_end_date) || (!openPause && endDate && today > endDate)) status = "COMPLETED";
+  // completed only when every delivery is made (or a cancelled plan has reached its end date)
+  if (delivered >= s.plan_days || (s.cancel_end_date && today > s.cancel_end_date)) status = "COMPLETED";
   else if (s.cancelled_at) status = "CANCELLED";
   else if (s.pauses.some((p) => p.to === null)) status = "PAUSED";
   else status = "ACTIVE";
@@ -140,22 +174,23 @@ export function subscriptionAction(s: Subscription, action: "pause" | "resume" |
 }
 
 /* ---------------- jobs ---------------- */
-const fullAddress = (a: StoredAddress | null) => (a ? [a.line1, a.line2, a.area, a.pincode && `— ${a.pincode}`].filter(Boolean).join(", ") : "");
+const fullAddress = (a: StoredAddress | null) => (a ? [a.line1, a.line2, a.area, a.district, a.pincode && `— ${a.pincode}`].filter(Boolean).join(", ") : "");
+const landmarkOf = (a: StoredAddress | null) => a?.landmark || a?.line2 || "";
 
 export function createOrderJob(db: OpsDb, o: ServerOrder) {
   const regular = o.items.filter((i) => !i.plan);
   const cod = o.payment === "cod";
   if (!regular.length && !cod) return; // a prepaid plan-only order is delivered by its daily plan jobs
-  const placed = new Date(o.created_at);
-  const by = new Date(placed.getTime() + 60 * 60_000);
-  (db.jobs ??= []).push({
-    id: uid("job"), type: "ORDER", ref: o.ref, source_id: o.ref, date: o.date, branch_id: o.branch_id, area: o.area,
-    distance_km: o.distance_km, slot: `By ${by.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}`,
-    slot_start: by.toISOString(),
+  if ((db.jobs ??= []).some((j) => j.type === "ORDER" && j.source_id === o.ref)) return;
+  const date = o.delivery_date && o.delivery_date >= o.date ? o.delivery_date : o.date;
+  db.jobs.push({
+    id: uid("job"), type: "ORDER", ref: o.ref, source_id: o.ref, date, branch_id: o.branch_id, area: o.area,
+    distance_km: o.distance_km, slot: o.delivery_slot || "Any time",
+    slot_start: new Date(`${date}T07:00:00+05:30`).toISOString(),
     items: (regular.length ? regular : o.items).map((i) => `${i.name} ${i.size} × ${i.qty}${i.plan ? ` (${i.planDays}-day plan payment)` : ""}`),
     amount: o.total, payment: cod ? "COD" : "PAID", due: cod ? o.total : 0,
-    customer: { name: o.customer.name, mobile: o.customer.mobile }, address: fullAddress(o.address), landmark: o.address?.line2 ?? "",
-    lat: o.address?.lat ?? null, lng: o.address?.lng ?? null, notes: "",
+    customer: { name: o.customer.name, mobile: o.customer.mobile }, address: fullAddress(o.address), landmark: landmarkOf(o.address),
+    lat: o.address?.lat ?? null, lng: o.address?.lng ?? null, notes: o.address?.instructions ?? "",
     status: "READY", partner_id: null, history: [{ at: iso(), action: "ready", by: "system" }],
   });
 }
@@ -167,18 +202,25 @@ export function ensureDailyJobs(db: OpsDb, events: EventLike[], today = istDate(
     const cal = planCalendar(s, today);
     const idx = cal.days.findIndex((x) => x.date === today);
     if (idx < 0 || cal.days[idx].status !== "UPCOMING" || cal.status === "PAUSED" || cal.status === "COMPLETED") continue;
+    // a plan starts delivering only once the admin has confirmed the order that paid for it
+    const paidBy = db.orders?.find((o) => o.ref === s.order_ref);
+    if (paidBy && paidBy.status !== "confirmed" && paidBy.status !== "picked_up" && paidBy.status !== "delivered") continue;
     const ref = `${s.ref}#${today}`;
     if (jobs.some((j) => j.ref === ref && j.status !== "FAILED")) continue;
     if (jobs.some((j) => j.ref === ref)) continue;
+    const planPartner = s.partner_id ? db.partners?.find((p) => p.id === s.partner_id && p.active) : undefined;
     const dayNo = cal.days.slice(0, idx + 1).filter((x) => x.status !== "PAUSED" && x.status !== "FAILED").length;
     jobs.push({
       id: uid("job"), type: "SUBSCRIPTION", ref, source_id: s.id, date: today, branch_id: s.branch_id, area: s.area, distance_km: null,
       slot: "7:00 – 9:00 am", slot_start: new Date(`${today}T07:00:00+05:30`).toISOString(),
       items: [`${s.product_name} ${s.size} × ${s.qty}`], amount: 0, payment: "PAID", due: 0,
-      customer: { name: s.customer.name, mobile: s.customer.mobile }, address: fullAddress(s.address), landmark: s.address?.line2 ?? "",
-      lat: s.address?.lat ?? null, lng: s.address?.lng ?? null, notes: s.notes,
+      customer: { name: s.customer.name, mobile: s.customer.mobile }, address: fullAddress(s.address), landmark: landmarkOf(s.address),
+      lat: s.address?.lat ?? null, lng: s.address?.lng ?? null, notes: [s.address?.instructions, s.notes].filter(Boolean).join(" · "),
       sub_info: { day_no: dayNo, plan_days: s.plan_days },
-      status: "READY", partner_id: null, history: [{ at: iso(), action: "ready", by: "system" }],
+      // the admin's chosen partner for this plan gets the day's delivery; otherwise it waits on the board
+      ...(planPartner
+        ? { status: "ASSIGNED" as const, partner_id: planPartner.id, assigned_at: iso(), assignments: [{ partner_id: planPartner.id, name: planPartner.name, mobile: planPartner.mobile, at: iso(), by: "plan partner" }], history: [{ at: iso(), action: `assigned to ${planPartner.name} (plan partner)`, by: "system" }] }
+        : { status: "READY" as const, partner_id: null, history: [{ at: iso(), action: "ready", by: "system" }] }),
     });
   }
   for (const e of events) {

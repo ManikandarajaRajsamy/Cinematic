@@ -12,6 +12,7 @@ export interface CartLine {
   qty: number; // per delivery, for plan lines
   subscription: boolean; // is this line a daily plan
   planDays?: number; // 7, 15 or 30 for plan lines: the line is paid for the whole plan
+  startDate?: string; // plan lines: first delivery day (YYYY-MM-DD)
 }
 
 export interface Address {
@@ -26,6 +27,8 @@ export interface Address {
   district: string; // must match the delivery district (checked by the server)
   lat: number | null; // map pin, used for the distance-based delivery fee
   lng: number | null;
+  landmark?: string;
+  instructions?: string; // e.g. "call before coming", shown to the delivery partner
 }
 
 export interface User {
@@ -46,7 +49,8 @@ export interface OrderItem {
   subscription: boolean;
 }
 
-export type OrderStatus = "placed" | "confirmed" | "preparing" | "out_for_delivery" | "delivered" | "cancelled";
+export type { OrderStatus } from "@/api/opsServer";
+import type { OrderStatus } from "@/api/opsServer";
 
 export interface DemoOrder {
   id: string;
@@ -63,6 +67,8 @@ export interface DemoOrder {
   placedAt: string;
   status: OrderStatus;
   hasSubscription: boolean;
+  deliveryDate?: string;
+  deliverySlot?: string;
   /** set by the server when the order is created */
   delivery?: { branch_id: string; distance_km: number; method: string; freeReason?: string };
 }
@@ -163,9 +169,9 @@ interface Ctx {
   planDiscountPercent: number; // highest plan discount ("up to")
   planPctFor: (days?: number) => number;
   // cart
-  addToCart: (productId: string, variantId: string, qty?: number, subscription?: boolean, planDays?: number) => void;
-  updateQty: (productId: string, variantId: string, qty: number) => void;
-  removeFromCart: (productId: string, variantId: string) => void;
+  addToCart: (productId: string, variantId: string, qty?: number, subscription?: boolean, planDays?: number, startDate?: string) => void;
+  updateQty: (productId: string, variantId: string, qty: number, subscription?: boolean) => void;
+  removeFromCart: (productId: string, variantId: string, subscription?: boolean) => void;
   clearCart: () => void;
   cartCount: number;
   // coupon
@@ -179,9 +185,7 @@ interface Ctx {
   removeAddress: (id: string) => void;
   // orders
   /** Sends the cart to the server, which prices it and recomputes the delivery fee. */
-  placeOrder: (customer: { name: string; phone: string; email: string }, address: Address, payment: "upi" | "card" | "cod") => Promise<{ order: DemoOrder; account: { created: boolean; claimToken?: string } }>;
-  advanceStatus: (orderId: string) => void;
-  cancelOrder: (orderId: string) => void;
+  placeOrder: (customer: { name: string; phone: string; email: string }, address: Address, payment: "upi" | "card" | "cod", when?: { date: string; slot: string }, paymentRef?: string) => Promise<{ order: DemoOrder; account: { created: boolean; claimToken?: string } }>;
   // subscriptions
   subscribe: (plan: Omit<SubscriptionPlan, "id" | "startedAt" | "status">) => void;
   setSubscriptionStatus: (id: string, status: SubscriptionPlan["status"]) => void;
@@ -236,12 +240,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const dismissToast = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   // --- cart ops ---
-  const addToCart = useCallback<Ctx["addToCart"]>((productId, variantId, qty = 1, subscription = false, planDays) => {
+  const addToCart = useCallback<Ctx["addToCart"]>((productId, variantId, qty = 1, subscription = false, planDays, startDate) => {
     setState((s) => {
       // a plan line is its own line per plan length; it is replaced, not added to
       if (subscription) {
         const cart = s.cart.filter((l) => !(l.subscription && l.productId === productId));
-        return { ...s, cart: [...cart, { productId, variantId, qty, subscription: true, planDays }] };
+        return { ...s, cart: [...cart, { productId, variantId, qty, subscription: true, planDays, startDate }] };
       }
       const idx = s.cart.findIndex((l) => l.productId === productId && l.variantId === variantId && l.subscription === subscription);
       const max = productById(productId)?.maxQty ?? Infinity;
@@ -251,16 +255,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ...s, cart };
     });
   }, []);
-  const updateQty = useCallback<Ctx["updateQty"]>((productId, variantId, qty) => {
+  // a regular parcel and a daily plan of the same size are different lines: match the plan flag too
+  const sameLine = (l: CartLine, productId: string, variantId: string, subscription = false) =>
+    l.productId === productId && l.variantId === variantId && l.subscription === subscription;
+  const updateQty = useCallback<Ctx["updateQty"]>((productId, variantId, qty, subscription = false) => {
     setState((s) => ({
       ...s,
       cart: qty <= 0
-        ? s.cart.filter((l) => !(l.productId === productId && l.variantId === variantId))
-        : s.cart.map((l) => (l.productId === productId && l.variantId === variantId ? { ...l, qty: Math.min(productById(productId)?.maxQty ?? Infinity, qty) } : l)),
+        ? s.cart.filter((l) => !sameLine(l, productId, variantId, subscription))
+        : s.cart.map((l) => (sameLine(l, productId, variantId, subscription) ? { ...l, qty: Math.min(productById(productId)?.maxQty ?? Infinity, qty) } : l)),
     }));
   }, []);
-  const removeFromCart = useCallback<Ctx["removeFromCart"]>((productId, variantId) => {
-    setState((s) => ({ ...s, cart: s.cart.filter((l) => !(l.productId === productId && l.variantId === variantId)) }));
+  const removeFromCart = useCallback<Ctx["removeFromCart"]>((productId, variantId, subscription = false) => {
+    setState((s) => ({ ...s, cart: s.cart.filter((l) => !sameLine(l, productId, variantId, subscription)) }));
   }, []);
   const clearCart = useCallback(() => setState((s) => ({ ...s, cart: [] })), []);
 
@@ -283,7 +290,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await auth.signOut().catch(() => {});
     setState((s) => ({ ...s, user: { name: "", email: "", phone: "", loggedIn: false }, addresses: [] }));
   }, []);
-  // order statuses come from the server (a delivery partner picks, delivers or marks failed)
+  // order statuses come from the server: the admin confirms and assigns, the delivery partner updates
   const orderRefs = state.orders.map((o) => o.number).join(",");
   useEffect(() => {
     if (!orderRefs) return;
@@ -330,12 +337,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // --- orders ---
-  const placeOrder = useCallback<Ctx["placeOrder"]>(async (customer, address, payment) => {
+  const placeOrder = useCallback<Ctx["placeOrder"]>(async (customer, address, payment, when, paymentRef) => {
     // Only product ids, quantities, the address id and the coupon code are sent. The server looks up
     // prices and recomputes the delivery fee, so nothing priced in the browser can change the total.
     const priced = await api.createOrder({
-      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty, plan: l.subscription, planDays: l.planDays })),
-      payment,
+      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty, plan: l.subscription, planDays: l.planDays, startDate: l.startDate })),
+      payment, deliveryDate: when?.date, deliverySlot: when?.slot, paymentRef,
       addressId: address.id, couponCode: state.activeCoupon, customer,
     });
     const r = (paise: number) => paise / 100;
@@ -352,31 +359,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       address,
       customer,
       placedAt: new Date().toISOString(),
-      status: "placed",
+      status: "pending",
       hasSubscription: priced.items.some((i) => i.plan),
       delivery: priced.delivery,
+      deliveryDate: when?.date, deliverySlot: when?.slot,
     };
     setState((s) => ({ ...s, orders: [order, ...s.orders], cart: [], activeCoupon: undefined }));
     return { order, account: priced.account };
   }, [state.cart, state.activeCoupon]);
-
-  const advanceStatus = useCallback<Ctx["advanceStatus"]>((orderId) => {
-    const order: OrderStatus[] = ["placed", "confirmed", "preparing", "out_for_delivery", "delivered"];
-    setState((s) => ({
-      ...s,
-      orders: s.orders.map((o) => {
-        if (o.id !== orderId || o.status === "delivered" || o.status === "cancelled") return o;
-        const i = order.indexOf(o.status);
-        return { ...o, status: order[i + 1] ?? o.status };
-      }),
-    }));
-  }, []);
-  const cancelOrder = useCallback<Ctx["cancelOrder"]>((orderId) => {
-    setState((s) => ({
-      ...s,
-      orders: s.orders.map((o) => (o.id === orderId ? { ...o, status: "cancelled" as OrderStatus } : o)),
-    }));
-  }, []);
 
   // --- subscriptions ---
   const subscribe = useCallback<Ctx["subscribe"]>((plan) => {
@@ -394,7 +384,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     addToCart, updateQty, removeFromCart, clearCart, cartCount, setCoupon,
     signedIn, signOut,
     addAddress, updateAddress, removeAddress,
-    placeOrder, advanceStatus, cancelOrder,
+    placeOrder,
     subscribe, setSubscriptionStatus,
     toasts, toast, dismissToast,
   };
