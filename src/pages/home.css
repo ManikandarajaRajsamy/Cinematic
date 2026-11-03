@@ -12,8 +12,9 @@
 .home-film { position: fixed; inset: 0; z-index: 0; background: var(--green-deep); }
 .home-film .hero-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 70% 55%; }
 @media (max-width: 760px) {
-  .home-film { background: var(--green-deep) url("/media/pour-poster-m.jpg") center / cover no-repeat; }
-  .home-film .hero-video { display: none; }
+  .home-film { inset: 0 auto auto 0; width: 100vw; height: 100dvh; background: var(--green-deep) url("/media/pour-poster-m.jpg") center / cover no-repeat; }
+  .home-film .hero-video { object-position: 50% 50%; }
+  main.on-film, .home { width: 100vw; max-width: none; }
 }
 .home .hero { background: transparent; z-index: 1; }
 .home .story { z-index: 1; }
@@ -49,7 +50,7 @@
 .hero-third { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; font-size: var(--font-sm); color: rgba(255, 255, 255, 0.9); border-bottom: 1px solid rgba(255, 255, 255, 0.4); padding-bottom: 3px; }
 .hero-third:hover { color: var(--white); border-color: var(--white); }
 @media (max-width: 760px) {
-  .hero-in { padding-top: 130px; gap: var(--sp-6); }
+  .hero-in { box-sizing: border-box; padding: 130px var(--sp-4) var(--sp-8); gap: var(--sp-6); }
   .hero-panels { grid-template-columns: 1fr; }
   .hp { padding: var(--sp-5); }
   .hp .btn { width: 100%; }

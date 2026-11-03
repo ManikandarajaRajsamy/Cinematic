@@ -40,12 +40,17 @@
 .hdr-clear .hdr-icon:hover { background: rgba(255, 255, 255, 0.12); }
 @media (max-width: 860px) { .hdr-nav { display: none; } .hdr-burger { display: inline-flex; } }
 @media (max-width: 640px) {
+  .hdr { right: auto; width: 100vw; }
   .hdr-strip-in { padding-inline: var(--sp-4); }
   .hdr-strip-in > span { display: none; }
   .hdr-strip-r { width: 100%; justify-content: space-between; }
   .hdr-main { padding-inline: var(--sp-4); }
   .hdr .brand img { width: 46px !important; }
   .brand-l1 { font-size: 1.15rem; }
+}
+@media (min-width: 641px) and (max-width: 760px) {
+  .hdr { right: auto; width: 100vw; }
+  .hdr-strip-in, .hdr-main { padding-inline: var(--sp-4); }
 }
 .mnav-head { display: flex; justify-content: space-between; align-items: center; padding: var(--sp-5); border-bottom: 1px solid var(--border); }
 .mnav-links { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-5); display: flex; flex-direction: column; }
