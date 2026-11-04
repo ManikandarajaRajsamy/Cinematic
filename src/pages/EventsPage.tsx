@@ -20,7 +20,7 @@ export function EventsPage() {
   const [params] = useSearchParams();
   const [litres, setLitres] = useState(() => Math.max(1, Math.min(2000, Number(params.get("litres")) || 10)));
   const [service, setService] = useState<ServiceOption>(() => SERVICE_OPTIONS.find((s) => s.id === params.get("service"))?.id ?? "PICKUP");
-  const [form, setForm] = useState({ name: "", phone: "", event_type: EVENT_TYPES.includes(params.get("type") ?? "") ? params.get("type")! : EVENT_TYPES[0], event_date: params.get("date") ?? "", event_time: "", venue: params.get("venue") ?? "", notes: "" });
+  const [form, setForm] = useState({ name: "", phone: "", event_type: EVENT_TYPES.includes(params.get("type") ?? "") ? params.get("type")! : EVENT_TYPES[0], event_date: params.get("date") ?? "", event_time: "", venue: params.get("venue") ?? "", notes: "", promo_code: params.get("promo") ?? "" });
   const [agree, setAgree] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
@@ -146,6 +146,7 @@ export function EventsPage() {
                 {service !== "PICKUP" && (
                   <div className="field mt-4"><label className="label" htmlFor="ev-venue">Venue address</label><textarea id="ev-venue" className="textarea" style={{ minHeight: 80 }} value={form.venue} onChange={set("venue")} />{errors.venue && <span className="field-error">{errors.venue}</span>}</div>
                 )}
+                <div className="field mt-4"><label className="label" htmlFor="ev-promo">Promo code (optional)</label><input id="ev-promo" className="input" value={form.promo_code} onChange={(e) => setForm({ ...form, promo_code: e.target.value.toUpperCase() })} placeholder="Promoter's code" />{errors.promo_code ? <span className="field-error">{errors.promo_code}</span> : <span style={{ fontSize: "var(--font-xs)", color: "var(--text-dim)" }}>Event orders aren't discounted; the code credits the promoter who referred you.</span>}</div>
                 <div className="field mt-4"><label className="label" htmlFor="ev-notes">Notes (optional)</label><textarea id="ev-notes" className="textarea" style={{ minHeight: 80 }} value={form.notes} onChange={set("notes")} placeholder="Number of guests, serving time, anything we should know" /></div>
                 <label className="ev-agree mt-4">
                   <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />

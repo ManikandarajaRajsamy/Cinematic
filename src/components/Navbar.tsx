@@ -89,11 +89,13 @@ export function Navbar() {
               ))}
             </nav>
             <div className="mnav-foot">
-              <LangSwitch />
-              <Link to={state.user.loggedIn ? "/account" : "/login"} className="btn btn-ghost btn-sm"><User size={14} /> {state.user.loggedIn ? t("My account", "என் கணக்கு") : t("Sign in", "உள்நுழை")}</Link>
-              <Link to="/tracking" className="btn btn-ghost btn-sm"><PackageSearch size={14} /> {t("Track order", "ஆர்டர் நிலை")}</Link>
-              <Link to="/cart" className="btn btn-primary btn-sm"><ShoppingBag size={14} /> {t("Cart", "கூடை")}{cartCount > 0 && ` (${cartCount})`}</Link>
-              {phone && <a href={`tel:${phone}`} className="hdr-phone"><Phone size={13} /> {phone}</a>}
+              <div className="mnav-lang"><span>{t("Language", "மொழி")}</span><LangSwitch /></div>
+              <div className="mnav-pair">
+                <Link to={state.user.loggedIn ? "/account" : "/login"} className="btn btn-ghost"><User size={16} /> {state.user.loggedIn ? t("My account", "என் கணக்கு") : t("Sign in", "உள்நுழையவும்")}</Link>
+                <Link to="/tracking" className="btn btn-ghost"><PackageSearch size={16} /> {t("Track order", "ஆர்டர் நிலை")}</Link>
+              </div>
+              <Link to="/cart" className="btn btn-primary btn-block"><ShoppingBag size={16} /> {t("Cart", "கூடை")}{cartCount > 0 && ` · ${cartCount}`}</Link>
+              {phone && <a href={`tel:${phone}`} className="mnav-call"><Phone size={14} /> {t("Call us", "அழைக்க")} · {phone}</a>}
             </div>
           </div>
         </div>

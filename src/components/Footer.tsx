@@ -32,7 +32,7 @@ export function Footer() {
             </div>
           </div>
           <nav className="ftr-col" aria-label="Footer">
-            <h6>{t("Explore", "பார்வையிட")}</h6>
+            <h6>{t("Explore", "மேலும் அறிய")}</h6>
             {NAV_ITEMS.filter((n) => n.to !== "/").map((n) => <Link key={n.to} to={n.to}>{t(n.en, n.ta)}</Link>)}
           </nav>
           <div className="ftr-col">
@@ -57,7 +57,7 @@ export function Footer() {
             <Link to="/policies#terms">{t("Terms", "விதிமுறைகள்")}</Link>
             <Link to="/policies#privacy">{t("Privacy", "தனியுரிமை")}</Link>
             <Link to="/policies#delivery">{t("Delivery", "டெலிவரி")}</Link>
-            <Link to="/policies#refund">{t("Refunds", "பணம் திரும்ப")}</Link>
+            <Link to="/policies#refund">{t("Refunds", "பணம் திரும்பப் பெறுதல்")}</Link>
           </span>
         </div>
       </div>

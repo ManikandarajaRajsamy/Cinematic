@@ -30,7 +30,7 @@ function ParcelCard({ p }: { p: Product }) {
     <article className="pc">
       <div className="pc-img">
         <img src={photo} alt={p.name} decoding="async" />
-        {!v.inStock && <span className="pc-flag">{t("Sold out today", "இன்று தீர்ந்தது")}</span>}
+        {!v.inStock && <span className="pc-flag">{t("Sold out today", "இன்று விற்றுத் தீர்ந்தது")}</span>}
       </div>
       <div className="pc-body">
         <span className="pc-size">{v.label}</span>
@@ -46,8 +46,8 @@ function ParcelCard({ p }: { p: Product }) {
           </div>
         </div>
         <div className="pc-actions">
-          <button className="btn btn-ghost" onClick={() => add(false)} disabled={!v.inStock}><ShoppingBag size={15} /> {t("Add to cart", "கூடையில் சேர்")}</button>
-          <button className="btn btn-primary" onClick={() => add(true)} disabled={!v.inStock}>{t("Order now", "ஆர்டர்")} <ArrowRight size={15} /></button>
+          <button className="btn btn-ghost" onClick={() => add(false)} disabled={!v.inStock}><ShoppingBag size={15} /> {t("Add to cart", "கூடையில் சேர்க்கவும்")}</button>
+          <button className="btn btn-primary" onClick={() => add(true)} disabled={!v.inStock}>{t("Order now", "ஆர்டர் செய்யுங்கள்")} <ArrowRight size={15} /></button>
         </div>
       </div>
     </article>

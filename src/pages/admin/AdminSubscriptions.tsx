@@ -208,27 +208,27 @@ function TodayPlanDeliveries({ jobs }: { jobs: AdminJob[] }) {
   return (
     <details className="card tpd" open={done < jobs.length}>
       <summary><strong>Today's plan deliveries</strong> <span className={`badge ${done === jobs.length ? "badge-success" : "badge-saffron"}`}>{done} / {jobs.length} delivered</span></summary>
-      <div className="admin-table-wrap" style={{ border: 0 }}>
-        <table className="admin-table rt">
-          <thead><tr><th>Subscription</th><th>Customer</th><th>Partner</th><th>Status</th><th>Confirmed</th><th>OTP</th><th>Payment</th></tr></thead>
-          <tbody>
-            {jobs.map((j) => (
-              <tr key={j.id}>
-                <td data-label="Subscription"><strong>{j.ref.split("#")[0]}</strong>{j.sub_info && <><br /><small>day {j.sub_info.day_no} of {j.sub_info.plan_days}</small></>}</td>
-                <td data-label="Customer">{j.customer.name}</td>
-                <td data-label="Partner">{j.partner_name || "—"}</td>
-                <td data-label="Status"><span className={`badge ${j.status === "DELIVERED" ? "badge-success" : j.status === "FAILED" || j.status === "READY" ? "badge-error" : "badge-saffron"}`}>{label(j)}</span>{j.fail_reason && <><br /><small>{j.fail_reason}</small></>}</td>
-                <td data-label="Confirmed">{j.delivered_at ? new Date(j.delivered_at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—"}</td>
-                <td data-label="OTP">{j.otp_status === "VERIFIED" ? "Verified" : j.otp_status === "LOCKED" ? "Locked" : j.otp_status === "SENT" ? "Sent" : "—"}</td>
-                <td data-label="Payment">Prepaid</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ul className="tpd-list">
+        {jobs.map((j) => (
+          <li key={j.id}>
+            <div className="tpd-main">
+              <strong>{j.customer.name}</strong>
+              <span>{j.ref.split("#")[0]}{j.sub_info && ` · day ${j.sub_info.day_no} of ${j.sub_info.plan_days}`} · {j.slot}</span>
+              <span>{j.partner_name ? `Partner: ${j.partner_name}` : "No partner yet"}{j.delivered_at && ` · delivered ${new Date(j.delivered_at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}`}{j.otp_status === "VERIFIED" && " · OTP verified"}{j.fail_reason && ` · ${j.fail_reason}`}</span>
+            </div>
+            <span className={`badge ${j.status === "DELIVERED" ? "badge-success" : j.status === "FAILED" || j.status === "READY" ? "badge-error" : "badge-saffron"}`}>{label(j)}</span>
+          </li>
+        ))}
+      </ul>
       <style>{`
         .tpd { padding: var(--sp-4) var(--sp-5); margin-bottom: var(--sp-5); }
-        .tpd summary { display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 4px; }
+        .tpd summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
+        .tpd-list { list-style: none; display: flex; flex-direction: column; margin-top: 10px; }
+        .tpd-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px dashed var(--border); }
+        .tpd-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .tpd-main strong { font-size: 14px; }
+        .tpd-main span { font-size: 12px; color: var(--text-dim); }
+        .tpd-list .badge { flex-shrink: 0; }
       `}</style>
     </details>
   );

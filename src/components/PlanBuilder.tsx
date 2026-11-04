@@ -4,7 +4,7 @@ import { Minus, Plus, ArrowRight, CalendarDays, Truck, MapPin } from "lucide-rea
 import { useDeliverySettings } from "@/api/client";
 import { useStore } from "@/store/store";
 import { useLang } from "@/i18n";
-import { upcomingDates } from "@/data/delivery";
+import { DELIVERY_SLOTS, upcomingDates } from "@/data/delivery";
 
 // Plan lengths the shop offers; each one's discount comes from the delivery settings.
 const PLAN_DAYS = [7, 15, 30] as const;
@@ -32,6 +32,7 @@ export function PlanBuilder() {
   const [pickedId, setPickedId] = useState(() => all.find((p) => p.planEligible && p.variants[0].label === params.get("size"))?.id ?? "");
   const [qty, setQty] = useState(() => Math.max(1, Math.min(10, Number(params.get("qty")) || 1)));
   const [start, setStart] = useState(dates[1]);
+  const [slot, setSlot] = useState(DELIVERY_SLOTS[0]);
 
   const product = products.find((p) => p.id === pickedId) ?? products.find((p) => p.variants[0].inStock) ?? products[0];
   const variant = product?.variants[0];
@@ -44,7 +45,7 @@ export function PlanBuilder() {
 
   const subscribe = () => {
     if (!product || !variant?.inStock) return;
-    addToCart(product.id, variant.id, qty, true, days, start);
+    addToCart(product.id, variant.id, qty, true, days, start, slot);
     toast(`${days}-day plan added · starts ${startLabel}`, "success");
     navigate("/checkout");
   };
@@ -78,7 +79,7 @@ export function PlanBuilder() {
             </div>
           </div>
           <div className="pb-step">
-            <span className="pb-label">{t("Parcels per day", "ஒரு நாளைக்கு")}</span>
+            <span className="pb-label">{t("Parcels per day", "ஒரு நாளைக்குப் பார்சல்கள்")}</span>
             <div className="qty">
               <button type="button" aria-label="Fewer" onClick={() => setQty(Math.max(1, qty - 1))} disabled={qty <= 1}><Minus size={16} /></button>
               <span aria-live="polite">{qty}</span>
@@ -90,10 +91,16 @@ export function PlanBuilder() {
             <input id="pb-start" type="date" className="input pb-date" min={dates[0]} max={dates[dates.length - 1]} value={start}
               onChange={(e) => e.target.value && setStart(e.target.value)} />
           </div>
+          <div className="pb-step">
+            <span className="pb-label">{t("Delivery time", "டெலிவரி நேரம்")}</span>
+            <div className="pb-slots" role="radiogroup" aria-label={t("Delivery time", "டெலிவரி நேரம்")}>
+              {DELIVERY_SLOTS.map((x) => <button key={x} type="button" role="radio" aria-checked={slot === x} className={slot === x ? "on" : ""} onClick={() => setSlot(x)}>{x}</button>)}
+            </div>
+          </div>
           <ul className="pb-delivery">
-            <li><CalendarDays size={16} /> {t(`Every morning for ${days} days, from ${startLabel}`, `${startLabel} முதல் ${days} நாட்கள் தினமும் காலையில்`)}</li>
-            <li><Truck size={16} /> {settings?.plan_free_delivery === false ? t("Delivery fee shown at checkout", "டெலிவரி கட்டணம் செக்அவுட்டில்") : t("Free delivery on every plan day", "திட்ட நாட்களில் இலவச டெலிவரி")}</li>
-            <li><MapPin size={16} /> {t(`Delivery address and UPI payment at the next step${settings ? ` · ${settings.district_restriction} district` : ""}`, "அடுத்த படியில் முகவரி மற்றும் UPI கட்டணம்")}</li>
+            <li><CalendarDays size={16} /> {t(`Every day for ${days} days from ${startLabel}, ${slot}`, `${startLabel} முதல் ${days} நாட்கள், தினமும் ${slot}`)}</li>
+            <li><Truck size={16} /> {settings?.plan_free_delivery === false ? t("Delivery fee shown at checkout", "டெலிவரி கட்டணம் செக்அவுட்டில் காட்டப்படும்") : t("Free delivery on every plan day", "திட்ட நாட்களில் இலவச டெலிவரி")}</li>
+            <li><MapPin size={16} /> {t(`Delivery address and UPI payment at the next step${settings ? ` · ${settings.district_restriction} district` : ""}`, "அடுத்த படியில் முகவரியும் UPI கட்டணமும்")}</li>
           </ul>
         </div>
 
@@ -105,9 +112,9 @@ export function PlanBuilder() {
             <div className="pb-save"><dt>{t("Plan discount", "திட்ட தள்ளுபடி")} ({pct}%)</dt><dd>−₹{discount}</dd></div>
             <div><dt>{t("Delivery", "டெலிவரி")}</dt><dd>{settings?.plan_free_delivery === false ? t("At checkout", "செக்அவுட்டில்") : t("Free", "இலவசம்")}</dd></div>
           </dl>
-          <div className="pb-total"><span>{t("Total, paid once", "மொத்தம், ஒரே முறை")}</span><strong>₹{total}</strong></div>
+          <div className="pb-total"><span>{t("Total, paid once", "மொத்தம் (ஒரே முறை செலுத்துதல்)")}</span><strong>₹{total}</strong></div>
           <p className="pb-perday">₹{Math.round(total / days)} {t("a day", "ஒரு நாளைக்கு")}</p>
-          <button className="btn btn-primary btn-lg btn-block" onClick={subscribe} disabled={!variant?.inStock}>{t("Subscribe", "சந்தா செய்")} <ArrowRight size={16} /></button>
+          <button className="btn btn-primary btn-lg btn-block" onClick={subscribe} disabled={!variant?.inStock}>{t("Subscribe", "சந்தா பெறுங்கள்")} <ArrowRight size={16} /></button>
         </aside>
       </div>
     </div>

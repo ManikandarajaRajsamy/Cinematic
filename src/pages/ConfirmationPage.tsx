@@ -66,8 +66,8 @@ export function ConfirmationPage() {
           <div className="divider" />
           <div className="confirm-totals">
             <div className="summary-row"><span>Subtotal</span><span>₹{order.subtotal}</span></div>
-            {order.couponDiscount > 0 && <div className="summary-row discount"><span>Coupon discount</span><span>– ₹{order.couponDiscount}</span></div>}
-            {order.subscriptionDiscount > 0 && <div className="summary-row discount"><span>Subscription discount (15%)</span><span>– ₹{order.subscriptionDiscount}</span></div>}
+            {order.couponDiscount > 0 && <div className="summary-row discount"><span>Promo discount</span><span>– ₹{order.couponDiscount}</span></div>}
+            {order.subscriptionDiscount > 0 && <div className="summary-row discount"><span>Plan discount</span><span>– ₹{order.subscriptionDiscount}</span></div>}
             <div className="summary-row"><span>Delivery{order.delivery && ` · ${order.delivery.distance_km.toFixed(1)} km`}</span><span>{order.deliveryFee === 0 ? "Free" : `₹${order.deliveryFee}`}</span></div>
             <div className="summary-row total"><span>Total</span><span className="price" style={{ fontSize: "1.5rem" }}>₹{order.total}</span></div>
           </div>

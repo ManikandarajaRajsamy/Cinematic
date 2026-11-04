@@ -13,6 +13,7 @@ export interface CartLine {
   subscription: boolean; // is this line a daily plan
   planDays?: number; // 7, 15 or 30 for plan lines: the line is paid for the whole plan
   startDate?: string; // plan lines: first delivery day (YYYY-MM-DD)
+  slot?: string; // plan lines: daily delivery window
 }
 
 export interface Address {
@@ -93,6 +94,7 @@ interface State {
   orders: DemoOrder[];
   subscriptions: SubscriptionPlan[];
   activeCoupon?: string;
+  promoPct?: number; // set when the active code is a promoter's code
 }
 
 /* ---------------- Helpers ---------------- */
@@ -128,9 +130,11 @@ export function cartSubtotal(cart: CartLine[]): number {
   return cart.reduce((s, l) => s + lineSubtotal(l), 0);
 }
 
-export function applyCoupon(code: string | undefined, subtotal: number): { discount: number; label?: string; code?: string } {
+/** The discount from a code, on product prices only (never delivery or fees). promoPct: a promoter's code (5%). */
+export function applyCoupon(code: string | undefined, subtotal: number, promoPct?: number): { discount: number; label?: string; code?: string } {
   if (!code) return { discount: 0 };
   const c = COUPONS[code.toUpperCase()];
+  if (!c && promoPct) return { discount: Math.round((subtotal * promoPct) / 100), label: `${promoPct}% off product prices`, code: code.toUpperCase() };
   if (!c) return { discount: 0 };
   const d = c.type === "percent" ? Math.round(subtotal * c.value) / 100 : Math.min(c.value, subtotal);
   return { discount: Math.round(d), label: c.label, code: code.toUpperCase() };
@@ -149,9 +153,9 @@ export interface CartTotals {
  * Display totals. The delivery fee comes from a server quote (in rupees) and the plan discount
  * percent from the delivery settings; the server recalculates everything again at order creation.
  */
-export function computeTotals(cart: CartLine[], couponCode?: string, deliveryFee = 0, planPctFor: (days?: number) => number = () => 15): CartTotals {
+export function computeTotals(cart: CartLine[], couponCode?: string, deliveryFee = 0, planPctFor: (days?: number) => number = () => 10, promoPct?: number): CartTotals {
   const subtotal = cartSubtotal(cart);
-  const coupon = applyCoupon(couponCode, subtotal);
+  const coupon = applyCoupon(couponCode, subtotal, promoPct);
   const hasSubscription = cart.some((l) => l.subscription);
   // plan discount on the eligible (plan) lines only
   const subDiscount = cart.reduce((s, l) => s + (l.subscription ? Math.round((lineSubtotal(l) * planPctFor(l.planDays)) / 100) : 0), 0);
@@ -169,13 +173,13 @@ interface Ctx {
   planDiscountPercent: number; // highest plan discount ("up to")
   planPctFor: (days?: number) => number;
   // cart
-  addToCart: (productId: string, variantId: string, qty?: number, subscription?: boolean, planDays?: number, startDate?: string) => void;
+  addToCart: (productId: string, variantId: string, qty?: number, subscription?: boolean, planDays?: number, startDate?: string, slot?: string) => void;
   updateQty: (productId: string, variantId: string, qty: number, subscription?: boolean) => void;
   removeFromCart: (productId: string, variantId: string, subscription?: boolean) => void;
   clearCart: () => void;
   cartCount: number;
   // coupon
-  setCoupon: (code: string | undefined) => void;
+  setCoupon: (code: string | undefined, promoPct?: number) => void;
   // auth (see api/auth.ts): the mobile number is the customer ID
   signedIn: (c: PublicCustomer) => void;
   signOut: () => Promise<void>;
@@ -240,12 +244,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const dismissToast = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   // --- cart ops ---
-  const addToCart = useCallback<Ctx["addToCart"]>((productId, variantId, qty = 1, subscription = false, planDays, startDate) => {
+  const addToCart = useCallback<Ctx["addToCart"]>((productId, variantId, qty = 1, subscription = false, planDays, startDate, slot) => {
     setState((s) => {
       // a plan line is its own line per plan length; it is replaced, not added to
       if (subscription) {
         const cart = s.cart.filter((l) => !(l.subscription && l.productId === productId));
-        return { ...s, cart: [...cart, { productId, variantId, qty, subscription: true, planDays, startDate }] };
+        return { ...s, cart: [...cart, { productId, variantId, qty, subscription: true, planDays, startDate, slot }] };
       }
       const idx = s.cart.findIndex((l) => l.productId === productId && l.variantId === variantId && l.subscription === subscription);
       const max = productById(productId)?.maxQty ?? Infinity;
@@ -271,7 +275,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
   const clearCart = useCallback(() => setState((s) => ({ ...s, cart: [] })), []);
 
-  const setCoupon = useCallback((code: string | undefined) => setState((s) => ({ ...s, activeCoupon: code })), []);
+  const setCoupon = useCallback((code: string | undefined, promoPct?: number) => setState((s) => ({ ...s, activeCoupon: code, promoPct: code ? promoPct : undefined })), []);
 
   const cartCount = state.cart.reduce((n, l) => n + l.qty, 0);
 
@@ -341,7 +345,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // Only product ids, quantities, the address id and the coupon code are sent. The server looks up
     // prices and recomputes the delivery fee, so nothing priced in the browser can change the total.
     const priced = await api.createOrder({
-      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty, plan: l.subscription, planDays: l.planDays, startDate: l.startDate })),
+      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty, plan: l.subscription, planDays: l.planDays, startDate: l.startDate, slot: l.slot })),
       payment, deliveryDate: when?.date, deliverySlot: when?.slot, paymentRef,
       addressId: address.id, couponCode: state.activeCoupon, customer,
     });
@@ -364,7 +368,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       delivery: priced.delivery,
       deliveryDate: when?.date, deliverySlot: when?.slot,
     };
-    setState((s) => ({ ...s, orders: [order, ...s.orders], cart: [], activeCoupon: undefined }));
+    setState((s) => ({ ...s, orders: [order, ...s.orders], cart: [], activeCoupon: undefined, promoPct: undefined }));
     return { order, account: priced.account };
   }, [state.cart, state.activeCoupon]);
 
@@ -379,7 +383,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     state, products, productsLoading: productsApi.loading, productsError: productsApi.error,
-    planDiscountPercent: settings.data?.plan_discount_percent ?? 15,
+    planDiscountPercent: settings.data?.plan_discount_percent ?? 10,
     planPctFor: (days?: number) => (days ? settings.data?.plan_discounts?.[String(days)] : undefined) ?? settings.data?.plan_discount_percent ?? 15,
     addToCart, updateQty, removeFromCart, clearCart, cartCount, setCoupon,
     signedIn, signOut,

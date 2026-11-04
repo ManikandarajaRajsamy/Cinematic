@@ -18,10 +18,14 @@ export interface Customer {
   addresses: StoredAddress[];
   order_refs: string[];
   source: "register" | "guest_order";
+  /** how the customer wants to hear from us, and their language */
+  preferences?: Preferences;
   created_at: string;
   updated_at: string;
 }
-export interface PublicCustomer { mobile: string; name: string; email: string; mobile_verified: boolean; has_password: boolean; addresses: StoredAddress[] }
+export interface Preferences { order_updates_sms: boolean; order_updates_whatsapp: boolean; offers_email: boolean; lang: "en" | "ta" }
+export const DEFAULT_PREFERENCES: Preferences = { order_updates_sms: true, order_updates_whatsapp: true, offers_email: false, lang: "en" };
+export interface PublicCustomer { mobile: string; name: string; email: string; mobile_verified: boolean; has_password: boolean; addresses: StoredAddress[]; preferences: Preferences; created_at: string }
 interface Session { mobile: string; sv: number; expires: number }
 interface ResetLink { token: string; mobile: string; expires: number; used: boolean; created_by: string; created_at: string }
 
@@ -51,6 +55,7 @@ const now = () => Date.now();
 
 const publicView = (c: Customer): PublicCustomer => ({
   mobile: c.mobile, name: c.name, email: c.email, mobile_verified: c.mobile_verified, has_password: !!c.password_hash, addresses: c.addresses,
+  preferences: { ...DEFAULT_PREFERENCES, ...c.preferences }, created_at: c.created_at,
 });
 
 interface Ctx { db: AuthDb; commit: () => void; audit: (by: string, entity: string, id: string, action: string, old: unknown, next: unknown) => void; requireAdmin: (t?: string) => string }
@@ -163,6 +168,47 @@ export async function handleAuth(ctx: Ctx, method: string, route: string, id: st
       Object.assign(c, { name, email, updated_at: new Date().toISOString() });
       ctx.commit();
       return { customer: publicView(c) };
+    }
+
+    case "PUT /me/password": {
+      // change (or first set) the password: the current one is required when there is one. Other devices are
+      // signed out; this session stays signed in.
+      const c = sessionCustomer(db, customerToken);
+      if (!c) throw new AuthError(401, "Please sign in again.", "NO_SESSION");
+      const f: Record<string, string> = {};
+      if (c.password_hash && !(typeof b.current === "string" && (await bcrypt.compare(b.current, c.password_hash)))) f.current = "Your current password is not correct.";
+      validatePassword(b.password, f);
+      if (b.password !== b.confirm) f.confirm = "Passwords don't match.";
+      if (Object.keys(f).length) throw new AuthError(422, "Please fix the highlighted fields", undefined, f);
+      c.password_hash = await bcrypt.hash(String(b.password), BCRYPT_ROUNDS);
+      c.session_version += 1;
+      if (customerToken && db.sessions?.[customerToken]) db.sessions[customerToken].sv = c.session_version;
+      c.updated_at = new Date().toISOString();
+      ctx.audit(`customer:${c.mobile}`, "customer", c.mobile, "password changed", null, null);
+      ctx.commit();
+      return { customer: publicView(c) };
+    }
+
+    case "PUT /me/preferences": {
+      const c = sessionCustomer(db, customerToken);
+      if (!c) throw new AuthError(401, "Please sign in again.", "NO_SESSION");
+      const p = { ...DEFAULT_PREFERENCES, ...c.preferences };
+      for (const k of ["order_updates_sms", "order_updates_whatsapp", "offers_email"] as const) if (typeof b[k] === "boolean") p[k] = b[k] as boolean;
+      if (b.lang === "en" || b.lang === "ta") p.lang = b.lang;
+      c.preferences = p;
+      c.updated_at = new Date().toISOString();
+      ctx.commit();
+      return { customer: publicView(c) };
+    }
+
+    case "POST /me/signout-others": {
+      // ends every other session on the account; this device stays signed in
+      const c = sessionCustomer(db, customerToken);
+      if (!c) throw new AuthError(401, "Please sign in again.", "NO_SESSION");
+      c.session_version += 1;
+      if (customerToken && db.sessions?.[customerToken]) db.sessions[customerToken].sv = c.session_version;
+      ctx.commit();
+      return { ok: true };
     }
 
     case "PUT /me/addresses": {

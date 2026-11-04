@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Search, XCircle, Check, Ban } from "lucide-react";
+import { Search, XCircle, Check, Ban, Plus, Link2, Eye, Phone, Package, MapPin, Bike, Clock, BadgeCheck, PackageCheck, ShoppingBag } from "lucide-react";
 import { useApi } from "@/api/client";
 import { ops, inr, type AdminOrder } from "@/api/ops";
 import { useStore } from "@/store/store";
@@ -7,10 +7,23 @@ import { Modal } from "@/components/Modal";
 import { ORDER_STATUS_LABEL, PAYMENT_STATUS_LABEL, statusBadge } from "@/data/orderStatus";
 import type { OrderStatus } from "@/api/opsServer";
 import { errorsFrom } from "./shared";
-import { Skeleton, inBranch, useBranchFilter } from "./ui";
-import { AssignSelect, JobTrack } from "./AdminDeliveries";
+import { Skeleton, ViewToggle, inBranch, useBranchFilter, useViewMode } from "./ui";
+import { AssignSelect } from "./AdminDeliveries";
+import { AdminNewOrder, trackingLink } from "./AdminNewOrder";
 
 const STATUSES = Object.keys(ORDER_STATUS_LABEL) as OrderStatus[];
+// the status tiles at the top of the list: tap one to filter
+const TILES: { id: string; label: string; icon: typeof Clock; tone: string }[] = [
+  { id: "ALL", label: "All orders", icon: ShoppingBag, tone: "t-all" },
+  { id: "pending", label: "To confirm", icon: Clock, tone: "t-wait" },
+  { id: "confirmed", label: "Confirmed", icon: BadgeCheck, tone: "t-info" },
+  { id: "picked_up", label: "Out for delivery", icon: Bike, tone: "t-info" },
+  { id: "delivered", label: "Delivered", icon: PackageCheck, tone: "t-done" },
+  { id: "cancelled", label: "Cancelled", icon: XCircle, tone: "t-stop" },
+];
+const itemsLine = (o: AdminOrder) => o.items.filter((i) => !i.plan).map((i) => `${i.size} × ${i.qty}`).join(", ") || o.items.map((i) => `${i.size} × ${i.qty}`).join(", ");
+const payText = (o: AdminOrder) => ({ ONLINE: "UPI · to verify", VERIFIED: "Paid · UPI", DUE: "Pay on delivery", COLLECTED: o.job?.collected?.method === "CASH" ? "Paid · cash" : "Paid · QR" } as const)[o.payment_status ?? (o.payment === "cod" ? "DUE" : "ONLINE")];
+const payBadge = (o: AdminOrder) => (o.payment_status === "VERIFIED" || o.payment_status === "COLLECTED" ? "badge-success" : o.payment_status === "ONLINE" ? "badge-gold" : "badge-saffron");
 const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 
 /** The order's whole lifecycle, oldest first: placed, confirmed, assigned, picked up, paid, OTP, delivered. */
@@ -61,6 +74,20 @@ export function AdminOrders({ branchName }: { branchName: (id: string) => string
   const [detailRef, setDetailRef] = useState<string | null>(null);
   const [confirmFor, setConfirmFor] = useState<{ o: AdminOrder; partner: string } | null>(null);
   const [rejectFor, setRejectFor] = useState<{ o: AdminOrder; reason: string } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [view, setView] = useViewMode("orders");
+
+  /** Confirm / reject while pending, cancel until pickup, and the details. */
+  const OrderActions = ({ o }: { o: AdminOrder }) => (
+    <div className="admin-actions">
+      {o.status === "pending" && <>
+        <button className="btn btn-sm btn-primary" onClick={() => setConfirmFor({ o, partner: "" })}><Check size={13} /> Confirm</button>
+        <button className="btn btn-sm btn-ghost" onClick={() => setRejectFor({ o, reason: "" })}><Ban size={13} /> Reject</button>
+      </>}
+      {canCancel(o) && <button className="btn btn-sm ot-ic ot-ic-stop" onClick={() => cancel(o)} title="Cancel order" aria-label={`Cancel ${o.ref}`}><XCircle size={15} /></button>}
+      <button className="btn btn-sm ot-ic ot-ic-view" onClick={() => setDetailRef(o.ref)} title="Details and history" aria-label={`Details of ${o.ref}`}><Eye size={15} /></button>
+    </div>
+  );
   const names = useMemo(() => Object.fromEntries((jobs.data ?? []).map((j) => [j.id, j.partner_name])), [jobs.data]);
   const refresh = () => { reload(); jobs.reload(); };
   const detail = (data ?? []).find((o) => o.ref === detailRef) ?? null;
@@ -80,9 +107,21 @@ export function AdminOrders({ branchName }: { branchName: (id: string) => string
 
   return (
     <div className="page-fade">
-      {pendingCount > 0 && status !== "pending" && (
-        <button className="alert warn" style={{ marginBottom: 14, width: "100%" }} onClick={() => setStatus("pending")}>{pendingCount} order{pendingCount === 1 ? "" : "s"} waiting for confirmation</button>
-      )}
+      <div className="os-tiles" role="group" aria-label="Filter by status">
+        {TILES.map((t) => {
+          const n = t.id === "ALL" ? all.length : all.filter((o) => o.status === t.id).length;
+          return (
+            <button key={t.id} className={`os-tile ${t.tone} ${status === t.id ? "on" : ""}`} aria-pressed={status === t.id} onClick={() => setStatus(t.id)}>
+              <span className="os-tile-ic"><t.icon size={18} /></span>
+              <span className="os-tile-txt"><strong>{n}</strong><small>{t.label}</small></span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="os-bar">
+        <button className="btn btn-primary" onClick={() => setCreating(true)}><Plus size={16} /> New order</button>
+        <ViewToggle mode={view} onChange={setView} />
+      </div>
       <div className="admin-controls">
         <label className="admin-search"><Search size={16} /><input className="input" placeholder="Search order, customer, mobile or area" aria-label="Search orders" value={q} onChange={(e) => setQ(e.target.value)} /></label>
         <select className="select" aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -91,36 +130,57 @@ export function AdminOrders({ branchName }: { branchName: (id: string) => string
         </select>
       </div>
       {loading && !data ? <Skeleton rows={5} /> : list.length === 0 ? <div className="card admin-empty">No orders match.</div> : (
-        <div className="admin-table-wrap">
-          <table className="admin-table rt">
-            <thead><tr><th>Order</th><th>Customer</th><th>Delivery</th><th>Total · payment</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {list.map((o) => (
-                <tr key={o.ref} onClick={() => setDetailRef(o.ref)} style={{ cursor: "pointer" }}>
-                  <td data-label="Order"><strong>{o.ref}</strong><br /><small style={{ color: "var(--text-dim)" }}>{new Date(o.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</small></td>
-                  <td data-label="Customer">{o.customer.name}<br /><a href={`tel:+91${o.customer.mobile}`} onClick={(e) => e.stopPropagation()} style={{ color: "var(--green)" }}>{o.customer.mobile}</a></td>
-                  <td data-label="Delivery">{o.area || "—"} · {branchName(o.branch_id)}<br /><small style={{ color: "var(--text-dim)" }}>{o.delivery_date ? `${new Date(o.delivery_date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · ${o.delivery_slot ?? ""}` : o.items.every((i) => i.plan) ? "Daily plan" : "—"}</small></td>
-                  <td data-label="Total · payment">{inr(o.total)}<br /><small style={{ color: "var(--text-dim)" }}>{o.payment_status ? PAYMENT_STATUS_LABEL[o.payment_status] : o.payment}</small></td>
-                  <td data-label="Status">
-                    <span className={`badge ${statusBadge(o.status)}`}>{ORDER_STATUS_LABEL[o.status] ?? o.status}</span>
-                    {o.job && o.status !== "pending" && <div style={{ marginTop: 6 }}><JobTrack j={o.job} partnerName={names[o.job.id]} badge={false} /></div>}
-                  </td>
-                  <td data-label="" onClick={(e) => e.stopPropagation()}>
-                    <div className="admin-actions">
-                      {o.status === "pending" && <>
-                        <button className="btn btn-sm btn-primary" onClick={() => setConfirmFor({ o, partner: "" })}><Check size={13} /> Confirm</button>
-                        <button className="btn btn-sm btn-ghost" onClick={() => setRejectFor({ o, reason: "" })}><Ban size={13} /> Reject</button>
-                      </>}
-                      {o.job && <AssignSelect j={o.job} onDone={refresh} />}
-                      {canCancel(o) && <button className="btn btn-sm btn-ghost" onClick={() => cancel(o)}><XCircle size={13} /> Cancel</button>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        view === "table" ? (
+          <div className="admin-table-wrap ot-wrap">
+            <table className="admin-table ot">
+              <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Delivery</th><th>Total</th><th>Payment</th><th>Status</th><th>Partner</th><th className="r">Action</th></tr></thead>
+              <tbody>
+                {list.map((o) => (
+                  <tr key={o.ref} onClick={() => setDetailRef(o.ref)}>
+                    <td><a className="ot-ref" href={`#order-${o.ref}`} onClick={(e) => { e.preventDefault(); setDetailRef(o.ref); }}>{o.ref}</a><small>{when(o.created_at)}</small></td>
+                    <td><div className="ot-cust"><span className="og-av">{o.customer.name.charAt(0).toUpperCase()}</span><div><span className="ot-name">{o.customer.name}</span><a className="ot-sub" href={`tel:+91${o.customer.mobile}`} onClick={(e) => e.stopPropagation()}>{o.customer.mobile}</a></div></div></td>
+                    <td className="ot-items">{itemsLine(o)}</td>
+                    <td><span>{o.area || "—"}</span><small>{branchName(o.branch_id)}</small></td>
+                    <td className="ot-num">{inr(o.total)}</td>
+                    <td><span className={`badge ${payBadge(o)}`}>{payText(o)}</span></td>
+                    <td><span className={`badge dot ${statusBadge(o.status)}`}>{ORDER_STATUS_LABEL[o.status] ?? o.status}</span></td>
+                    <td onClick={(e) => e.stopPropagation()}>{o.job ? <AssignSelect j={o.job} onDone={refresh} /> : <span className="ot-sub">{o.status === "pending" ? "After confirming" : "—"}</span>}{o.job?.partner_id && o.job.status !== "READY" && o.job.status !== "ASSIGNED" && <small>{names[o.job.id]}</small>}</td>
+                    <td className="r" onClick={(e) => e.stopPropagation()}><OrderActions o={o} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <ul className="og">
+            {list.map((o) => (
+              <li key={o.ref} className={`og-card ${o.status === "pending" ? "pending" : ""}`} onClick={() => setDetailRef(o.ref)}>
+                <div className="og-top">
+                  <div><strong>{o.ref}</strong><small>{when(o.created_at)}</small></div>
+                  <span className={`badge dot ${statusBadge(o.status)}`}>{ORDER_STATUS_LABEL[o.status] ?? o.status}</span>
+                </div>
+                <div className="og-who">
+                  <span className="og-av">{o.customer.name.charAt(0).toUpperCase()}</span>
+                  <div><strong>{o.customer.name}</strong><a href={`tel:+91${o.customer.mobile}`} onClick={(e) => e.stopPropagation()}><Phone size={12} /> {o.customer.mobile}</a></div>
+                </div>
+                <ul className="og-facts">
+                  <li><Package size={14} /> {itemsLine(o)}</li>
+                  <li><MapPin size={14} /> {o.area || "—"} · {branchName(o.branch_id)}</li>
+                  {o.job?.partner_id && <li><Bike size={14} /> {names[o.job.id] || "Partner assigned"}</li>}
+                </ul>
+                <div className="og-money"><strong>{inr(o.total)}</strong><span className={`badge ${payBadge(o)}`}>{payText(o)}</span></div>
+                <div className="og-act" onClick={(e) => e.stopPropagation()}>
+                  {o.job && (o.job.status === "READY" || o.job.status === "ASSIGNED") && <AssignSelect j={o.job} onDone={refresh} />}
+                  <OrderActions o={o} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )
       )}
+
+      <OrdersStyles />
+      <AdminNewOrder open={creating} onClose={() => setCreating(false)} onCreated={refresh} />
 
       <Modal open={!!confirmFor} onClose={() => setConfirmFor(null)} title={confirmFor ? `Confirm ${confirmFor.o.ref}` : ""} maxWidth={480}>
         {confirmFor && (
@@ -164,11 +224,13 @@ export function AdminOrders({ branchName }: { branchName: (id: string) => string
             <dl className="kv">
               <dt>Status</dt><dd>{ORDER_STATUS_LABEL[detail.status] ?? detail.status}{detail.reject_reason && ` · ${detail.reject_reason}`}</dd>
               <dt>Customer</dt><dd>{detail.customer.name} · +91 {detail.customer.mobile}</dd>
+              {detail.share_token && <><dt>Customer link</dt><dd><button className="btn btn-text btn-sm" onClick={() => navigator.clipboard.writeText(trackingLink(detail.share_token!)).then(() => toast("Link copied", "success"), () => toast(trackingLink(detail.share_token!)))}><Link2 size={13} /> Copy tracking link</button>{detail.created_by && <small style={{ color: "var(--text-dim)" }}> · created by the shop</small>}</dd></>}
               <dt>Address</dt><dd>{detail.address ? `${detail.address.line1}, ${detail.address.area} — ${detail.address.pincode}` : "—"}</dd>
               <dt>Deliver on</dt><dd>{detail.delivery_date ? `${detail.delivery_date} · ${detail.delivery_slot ?? ""}` : "—"}</dd>
               <dt>Items</dt><dd>{detail.items.map((i) => `${i.name} ${i.size} × ${i.qty}${i.plan ? ` (${i.planDays}-day plan)` : ""}`).join("; ")}</dd>
               <dt>Subtotal</dt><dd>{inr(detail.subtotal)}</dd>
-              {detail.discount > 0 && <><dt>Discounts</dt><dd>– {inr(detail.discount)}</dd></>}
+              {detail.discount > 0 && <><dt>Discounts</dt><dd>– {inr(detail.discount)}{detail.promo_code && ` (incl. promo ${detail.promo_code}: ${inr(detail.promo_discount ?? 0)})`}</dd></>}
+              {detail.promo_code && <><dt>Promoter</dt><dd>Code {detail.promo_code} · commission 10% of product price (see Promoters)</dd></>}
               <dt>Delivery fee</dt><dd>{detail.delivery_fee ? inr(detail.delivery_fee) : "Free"}</dd>
               <dt>Total</dt><dd><strong>{inr(detail.total)}</strong></dd>
               <dt>Payment method</dt><dd>{detail.payment === "cod" ? "Pay on delivery (UPI QR)" : "Online (UPI at checkout)"}</dd>
@@ -190,5 +252,82 @@ export function AdminOrders({ branchName }: { branchName: (id: string) => string
         )}
       </Modal>
     </div>
+  );
+}
+
+/** Styles for the orders list: status tiles, toolbar, table and grid. Always rendered with the list. */
+function OrdersStyles() {
+  return (
+    <style>{`
+        .vt { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); margin-left: auto; }
+        .vt button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-dim); }
+        .vt button.on { background: var(--accent-gold-glow); color: var(--accent-gold); }
+        .ot-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .ot { min-width: 1080px; }
+        .ot tbody tr { cursor: pointer; }
+        .ot td { vertical-align: middle; }
+        .ot td small { display: block; font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+        .ot-ref { font-weight: 700; }
+        .ot-name { display: block; font-weight: 600; }
+        .ot-sub { font-size: 12px; color: var(--text-dim); }
+        .ot-items { max-width: 160px; }
+        .ot-num { font-weight: 700; white-space: nowrap; }
+        .ot .r { text-align: right; }
+        .ot .admin-actions { justify-content: flex-end; flex-wrap: nowrap; }
+        .ot-ic { width: 34px; padding: 0 !important; justify-content: center; }
+        .ot .assign-select { min-width: 180px; }
+        .og { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+        .og-card { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); cursor: pointer; transition: box-shadow 160ms, border-color 160ms; }
+        .og-card:hover { border-color: var(--border-bright); box-shadow: 0 8px 24px rgba(17, 24, 39, 0.08); }
+        .og-card.pending { box-shadow: inset 3px 0 0 #FF9F43; }
+        .og-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+        .og-top > div { display: flex; flex-direction: column; }
+        .og-top small { font-size: 12px; color: var(--text-dim); }
+        .og-who { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg-elevated); }
+        .og-av { width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: var(--accent-gold-glow); color: var(--accent-gold); font-weight: 700; }
+        .og-who > div { display: flex; flex-direction: column; min-width: 0; }
+        .og-who a { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--accent-gold); }
+        .og-facts { list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-muted); }
+        .og-facts li { display: flex; align-items: center; gap: 8px; }
+        .og-facts svg { flex-shrink: 0; color: var(--text-dim); }
+        .og-money { display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px dashed var(--border); }
+        .og-money strong { font-size: 1.15rem; }
+        .og-act { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        .og-act .assign-select { flex: 1 1 100%; min-width: 0; }
+        .og-act .admin-actions { flex: 1; justify-content: flex-end; }
+        @media (max-width: 700px) { .og { grid-template-columns: 1fr; } .vt { margin-left: 0; } .vt span { display: none; } }
+        .os-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+        .os-tile { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-card); text-align: left; transition: transform 160ms, box-shadow 160ms, border-color 160ms; }
+        .os-tile:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(17, 24, 39, 0.08); }
+        .os-tile-ic { width: 40px; height: 40px; flex-shrink: 0; border-radius: 10px; display: grid; place-items: center; }
+        .os-tile-txt { display: flex; flex-direction: column; min-width: 0; }
+        .os-tile strong { font-size: 1.35rem; line-height: 1.1; }
+        .os-tile small { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .t-all .os-tile-ic { background: rgba(91, 95, 239, 0.12); color: #5B5FEF; }
+        .t-wait .os-tile-ic { background: rgba(255, 159, 67, 0.16); color: #D9770F; }
+        .t-info .os-tile-ic { background: rgba(0, 184, 217, 0.13); color: #0091AD; }
+        .t-done .os-tile-ic { background: rgba(40, 199, 111, 0.14); color: #1E9E57; }
+        .t-stop .os-tile-ic { background: rgba(234, 84, 85, 0.12); color: #D63B3C; }
+        .os-tile.on { border-color: #5B5FEF; box-shadow: 0 0 0 1px #5B5FEF, 0 8px 20px rgba(91, 95, 239, 0.15); }
+        .os-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+        .badge.dot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        .ot-cust { display: flex; align-items: center; gap: 10px; }
+        .ot-cust > div { display: flex; flex-direction: column; }
+        .ot-ic { width: 34px; height: 34px; min-height: 34px !important; padding: 0 !important; display: inline-grid !important; place-items: center; border-radius: 8px !important; border: 0 !important; }
+        .ot-ic-view { background: rgba(91, 95, 239, 0.1); color: #5B5FEF; }
+        .ot-ic-view:hover { background: #5B5FEF; color: #fff; }
+        .ot-ic-stop { background: rgba(234, 84, 85, 0.1); color: #D63B3C; }
+        .ot-ic-stop:hover { background: #EA5455; color: #fff; }
+        .ot tbody tr:hover td { background: rgba(91, 95, 239, 0.04); }
+        @media (max-width: 1200px) { .os-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (max-width: 700px) {
+          .os-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+          .os-tile { padding: 10px; gap: 10px; }
+          .os-tile-ic { width: 34px; height: 34px; }
+          .os-tile strong { font-size: 1.15rem; }
+          .os-bar .btn { flex: 1; }
+          .vt span { display: inline; }
+        }
+    `}</style>
   );
 }

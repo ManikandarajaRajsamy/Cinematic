@@ -40,16 +40,23 @@
 .hdr-clear .hdr-icon:hover { background: rgba(255, 255, 255, 0.12); }
 @media (max-width: 860px) { .hdr-nav { display: none; } .hdr-burger { display: inline-flex; } }
 @media (max-width: 640px) {
-  .hdr { right: auto; width: 100vw; }
   .hdr-strip-in { padding-inline: var(--sp-4); }
   .hdr-strip-in > span { display: none; }
   .hdr-strip-r { width: 100%; justify-content: space-between; }
-  .hdr-main { padding-inline: var(--sp-4); }
+  .hdr-main { gap: 8px; padding-inline: var(--sp-4); }
+  .hdr-logo { flex: 1 1 auto; min-width: 0; }
+  .hdr-logo .brand { gap: 8px; min-width: 0; }
+  .hdr-logo .brand-name { min-width: 0; }
+  .hdr-icons { flex: 0 0 auto; gap: 0; }
+  .hdr-icon { width: 36px; height: 40px; }
   .hdr .brand img { width: 46px !important; }
-  .brand-l1 { font-size: 1.15rem; }
+  .brand-l1 { font-size: 1rem; }
+  .brand-l2 { font-size: 9px; letter-spacing: 0.2em; }
 }
 @media (min-width: 641px) and (max-width: 760px) {
-  .hdr { right: auto; width: 100vw; }
+  .hdr-main { gap: 8px; }
+  .hdr-icons { gap: 0; }
+  .hdr-icon { width: 38px; }
   .hdr-strip-in, .hdr-main { padding-inline: var(--sp-4); }
 }
 .mnav-head { display: flex; justify-content: space-between; align-items: center; padding: var(--sp-5); border-bottom: 1px solid var(--border); }
@@ -59,7 +66,18 @@
 .mnav-more { margin-top: var(--sp-5); font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-dim); }
 .mnav-sub { padding: 8px 0; font-size: var(--font-md); color: var(--text-muted); }
 .mnav-sub.on, .mnav-sub:hover { color: var(--green); }
-.mnav-foot { padding: var(--sp-5); border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); font-size: var(--font-sm); }
+/* menu footer: language row, two equal actions, the cart, then a call line */
+.mnav-foot { padding: var(--sp-4) var(--sp-5) calc(var(--sp-4) + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--sp-3); font-size: var(--font-sm); background: var(--white); }
+.mnav-lang { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--sp-3); border-bottom: 1px solid var(--border); }
+.mnav-lang > span { font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.mnav-lang .lang-switch { padding: 3px; border: 1px solid var(--border-strong); border-radius: 999px; gap: 0; }
+.mnav-lang .lang-switch span { display: none; }
+.mnav-lang .lang-switch button { padding: 6px 14px; border-radius: 999px; border: 0; opacity: 1; color: var(--text-muted); font-size: 13px; }
+.mnav-lang .lang-switch button.on { background: var(--green); color: #fff; }
+.mnav-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+.mnav-pair .btn { padding-inline: 8px; min-width: 0; white-space: normal; text-align: center; }
+.mnav-foot .btn { min-height: 46px; }
+.mnav-call { display: flex; align-items: center; justify-content: center; gap: 6px; padding-top: 2px; font-size: 13px; font-weight: 600; color: var(--green); }
 
 /* --- Footer --- */
 .ftr { position: relative; z-index: 2; background: var(--green-deep); color: rgba(250, 247, 240, 0.82); padding: var(--sp-20) 0 var(--sp-8); }
@@ -132,6 +150,9 @@
 .pb-seg button.on { background: var(--charcoal); color: var(--cream); }
 .pb-seg button:disabled { opacity: 0.4; }
 .pb-date { width: auto; min-width: 190px; }
+.pb-slots { display: flex; flex-wrap: wrap; gap: 6px; }
+.pb-slots button { padding: 9px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); font-size: var(--font-sm); font-weight: 600; color: var(--text-muted); }
+.pb-slots button.on { background: var(--charcoal); border-color: var(--charcoal); color: var(--cream); }
 .pb-delivery { display: flex; flex-direction: column; gap: 10px; font-size: var(--font-sm); color: var(--text-muted); }
 .pb-delivery li { display: flex; gap: 10px; align-items: flex-start; }
 .pb-delivery svg { flex-shrink: 0; color: var(--green); margin-top: 2px; }
@@ -192,3 +213,37 @@
 .pc-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
 .pc-actions .btn { padding-inline: 12px; }
 @media (max-width: 420px) { .pcs { grid-template-columns: 1fr; } .pc-body { padding: var(--sp-5); } .pc-actions { grid-template-columns: 1fr; } }
+
+/* --- phones --- */
+@media (max-width: 420px) {
+  .brand-l2 { letter-spacing: 0.22em; font-size: 9px; }
+  .hdr-icon { width: 40px; height: 40px; }
+  .hdr-icons { gap: 0; }
+}
+@media (max-width: 360px) { .hdr .brand-name { display: none; } }
+@media (max-width: 600px) {
+  .pc-body { padding: var(--sp-5); }
+  .pc-body h3 { font-size: 1.6rem; }
+  .pc-price { font-size: 1.8rem; }
+  .pb-plan-off { top: 14px; right: 14px; }
+  .bd-name h3 { font-size: 1.35rem; }
+  .ftr-quote { font-size: 1.4rem; }
+}
+/* Tamil in the header and menus */
+html[lang="ta"] .hdr-link { letter-spacing: 0.02em; text-transform: none; font-size: 14px; }
+html[lang="ta"] .mnav-link { font-size: 1.35rem; }
+html[lang="ta"] .pb-label, html[lang="ta"] .po-total span, html[lang="ta"] .ftr-col h6 { letter-spacing: 0.02em; text-transform: none; }
+
+/* branch list: even card padding, the number as a badge, and the phone and directions links lined up on their icons */
+ol.bd { border-top: 0; display: flex; flex-direction: column; gap: 12px; list-style: none; padding: 0; }
+ol.bd > .bd-row { grid-template-columns: 44px minmax(0, 1.6fr) minmax(0, 1fr) auto; gap: 20px; align-items: center; padding: 22px 26px; border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 16px; background: rgba(255, 255, 255, 0.88); box-shadow: 0 8px 24px rgba(41, 41, 35, 0.08); }
+ol.bd .bd-num { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: rgba(0, 91, 79, 0.08); color: var(--green); font-family: var(--font-body); font-size: 14px; font-weight: 700; }
+ol.bd .bd-name { min-width: 0; }
+ol.bd .bd-name h3 { line-height: 1.15; }
+ol.bd .bd-act { align-items: flex-start; gap: 8px; min-width: 150px; }
+ol.bd .bd-link svg { flex-shrink: 0; }
+@media (max-width: 900px) {
+  ol.bd > .bd-row { grid-template-columns: 40px minmax(0, 1fr); gap: 10px 14px; padding: 18px; }
+  ol.bd .bd-when, ol.bd .bd-act { grid-column: 2; }
+  ol.bd .bd-act { flex-direction: row; flex-wrap: wrap; gap: 8px 18px; min-width: 0; }
+}

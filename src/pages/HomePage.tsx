@@ -134,21 +134,21 @@ function Hero() {
           <h1 className="words in"><Split text={t("Tradition in", "ஒவ்வொரு துளியிலும்")} /> <em><Split text={t("Every Drop.", "பாரம்பரியம்.")} start={3} /></em></h1>
           <p>{t(
             "Hot paruthipaal for your celebrations and your mornings. Cooked fresh in Madurai since 1999.",
-            "உங்கள் விழாக்களுக்கும் காலைகளுக்கும் சூடான பருத்திப்பால். 1999 முதல் மதுரையில் புதிதாகக் காய்ச்சப்படுகிறது.",
+            "உங்கள் விழாக்களுக்கும் தினசரி காலைப் பொழுதுக்கும் சூடான பருத்திப்பால். 1999 முதல் மதுரையில் தினமும் புதிதாகக் காய்ச்சப்படுகிறது.",
           )}</p>
         </div>
         <div className="hero-panels">
           <a href="#events" className="hp hp-event">
             <span className="hp-tag"><PartyPopper size={15} /> {t("Event orders", "விழா ஆர்டர்கள்")}</span>
             <h2>{t("Weddings, temple functions & festivals", "திருமணம், கோவில் விழா, பண்டிகை")}</h2>
-            <p>{t(`Bulk paruthipaal at ₹${EVENT_RATE_PER_LITRE / 100} a litre · pickup, delivery or a live counter`, `லிட்டருக்கு ₹${EVENT_RATE_PER_LITRE / 100} · கடையில், டெலிவரி அல்லது நேரடி கவுண்டர்`)}</p>
-            <span className="btn btn-gold">{t("Plan an event order", "விழா ஆர்டர் செய்")} <ArrowRight size={16} /></span>
+            <p>{t(`Bulk paruthipaal at ₹${EVENT_RATE_PER_LITRE / 100} a litre · pickup, delivery or a live counter`, `லிட்டருக்கு ₹${EVENT_RATE_PER_LITRE / 100} · கடையில் பெறுதல், டெலிவரி அல்லது நேரடி கவுண்டர்`)}</p>
+            <span className="btn btn-gold">{t("Plan an event order", "விழா ஆர்டர் செய்யுங்கள்")} <ArrowRight size={16} /></span>
           </a>
           <a href="#subscribe" className="hp hp-sub">
             <span className="hp-tag"><CalendarCheck size={15} /> {t("Daily subscription", "தினசரி சந்தா")}</span>
-            <h2>{t("Every morning, for 7, 15 or 30 days", "தினமும் காலையில், 7, 15, 30 நாட்கள்")}</h2>
-            <p>{t("Pick your start date · pay once by UPI · free delivery", "தொடக்க நாளைத் தேர்வு செய்யுங்கள் · ஒரு முறை UPI · இலவச டெலிவரி")}</p>
-            <span className="btn btn-primary">{t("Start a subscription", "சந்தா தொடங்கு")} <ArrowRight size={16} /></span>
+            <h2>{t("Every morning, for 7, 15 or 30 days", "7, 15 அல்லது 30 நாட்கள், தினமும் உங்கள் வீட்டுக்கே")}</h2>
+            <p>{t("Pick your start date · pay once by UPI · free delivery", "தொடக்க நாளைத் தேர்வு செய்யுங்கள் · ஒரே முறை UPI கட்டணம் · இலவச டெலிவரி")}</p>
+            <span className="btn btn-primary">{t("Start a subscription", "சந்தாவைத் தொடங்குங்கள்")} <ArrowRight size={16} /></span>
           </a>
         </div>
         <Link to="/products" className="hero-third"><Truck size={16} /> {t("Or order a 500 ML or 1 L parcel for home delivery", "அல்லது 500 மி.லி / 1 லி பார்சலை வீட்டுக்கு ஆர்டர் செய்யுங்கள்")} <ArrowRight size={15} /></Link>
@@ -177,7 +177,7 @@ function EventsFeature() {
             <img className="ev-feat-poster" src="/media/temple-first-m.webp" alt="" aria-hidden="true" />
             <BgVideo src="/media/temple-slow-m.mp4" poster="/media/temple-first-m.webp" />
           </div>
-          <div className="ev-feat-rate"><strong>₹{EVENT_RATE_PER_LITRE / 100}</strong><span>{t("per litre", "ஒரு லிட்டர்")}</span></div>
+          <div className="ev-feat-rate"><strong>₹{EVENT_RATE_PER_LITRE / 100}</strong><span>{t("per litre", "லிட்டருக்கு")}</span></div>
         </div>
         <div className="ev-feat-body">
           <span className="eyebrow">{t("Event orders · our speciality", "விழா ஆர்டர்கள்")}</span>
@@ -202,8 +202,8 @@ function EventsFeature() {
               })}
             </div>
             <div className="ev-plan-foot">
-              <span>{t("From", "குறைந்தது")} <strong>₹{((plan.litres * EVENT_RATE_PER_LITRE) / 100).toLocaleString("en-IN")}</strong>{plan.service !== "PICKUP" && t(" + charges", " + கட்டணம்")}</span>
-              <button className="btn btn-primary btn-lg">{t("Plan an event order", "விழா ஆர்டர் செய்")} <ArrowRight size={16} /></button>
+              <span>{t("From", "தொடக்க விலை")} <strong>₹{((plan.litres * EVENT_RATE_PER_LITRE) / 100).toLocaleString("en-IN")}</strong>{plan.service !== "PICKUP" && t(" + charges", " + கட்டணம்")}</span>
+              <button className="btn btn-primary btn-lg">{t("Plan an event order", "விழா ஆர்டர் செய்யுங்கள்")} <ArrowRight size={16} /></button>
             </div>
           </form>
         </div>
@@ -221,9 +221,9 @@ function Delivery() {
         <div className="sub-head">
           <div>
             <span className="eyebrow">{t("Home delivery", "வீட்டு டெலிவரி")}</span>
-            <h2 className="display-3 words"><Split text={t("A parcel for today, or any day this week.", "இன்றைக்கோ, இந்த வாரத்தில் எந்த நாளுக்கோ ஒரு பார்சல்.")} /></h2>
+            <h2 className="display-3 words"><Split text={t("Hot parcels, delivered to your door.", "சூடான பார்சல், உங்கள் வீட்டு வாசலுக்கே.")} /></h2>
           </div>
-          <p className="lead">{t("Choose the delivery day and a time window at checkout. Sealed hot, delivered in Madurai district.", "செக்அவுட்டில் நாளும் நேரமும் தேர்வு செய்யுங்கள். மதுரை மாவட்டத்தில் டெலிவரி.")}</p>
+          <p className="lead">{t("Sealed hot and delivered across Madurai district. Set your location at checkout to see the delivery fee.", "சூடாக அடைத்து, மதுரை மாவட்டம் முழுவதும் டெலிவரி செய்கிறோம். டெலிவரி கட்டணத்தை அறிய, செக்அவுட்டில் உங்கள் இருப்பிடத்தைக் குறிப்பிடுங்கள்.")}</p>
         </div>
         <ParcelCards />
       </div>
@@ -292,7 +292,7 @@ function Subscribe() {
             <span className="eyebrow">{t("Daily subscription", "தினசரி சந்தா")}</span>
             <h2 className="display-3 words"><Split text={t("Start a subscription. Wake up to it every morning.", "சந்தா தொடங்குங்கள். தினமும் காலையில் உங்கள் வீட்டுக்கே.")} /></h2>
           </div>
-          <p className="lead">{t("Choose 7, 15 or 30 days, the parcel size, how many each day and your start date. Pay once by UPI; we deliver every morning.", "7, 15, 30 நாட்கள், அளவு, ஒரு நாளைக்கு எத்தனை, தொடக்க நாள். ஒரு முறை UPI-ல் செலுத்துங்கள்.")}</p>
+          <p className="lead">{t("Choose 7, 15 or 30 days, the parcel size, how many each day and your start date. Pay once by UPI; we deliver every morning.", "7, 15, 30 நாட்கள், அளவு, ஒரு நாளைக்கு எத்தனை, தொடக்க நாள். ஒரே முறை UPI மூலம் செலுத்துங்கள்.")}</p>
         </div>
         <PlanBuilder />
         <div className="sub-mine"><MyPlans /></div>
@@ -336,7 +336,7 @@ function Reviews() {
       <div className="container rvw">
         <div className="rvw-side">
           <span className="eyebrow">{t("Customer reviews", "வாடிக்கையாளர் கருத்துகள்")}</span>
-          <h2 className="display-3 words"><Split text={t("Loved in Madurai, glass after glass.", "மதுரையின் விருப்பம், டம்ளர் டம்ளராக.")} /></h2>
+          <h2 className="display-3 words"><Split text={t("Loved in Madurai, glass after glass.", "மதுரை மக்களின் விருப்பமான பருத்திப்பால்.")} /></h2>
           <div className="rvw-score">
             <strong>{SHOP.rating}</strong>
             <div>
@@ -347,7 +347,7 @@ function Reviews() {
               <span className="rvw-count">{SHOP.reviewCount} {t("Google reviews", "கூகுள் மதிப்புரைகள்")}</span>
             </div>
           </div>
-          <ul className="rvw-topics" aria-label={t("Reviewers mention", "குறிப்பிடப்பட்டவை")}>
+          <ul className="rvw-topics" aria-label={t("Reviewers mention", "வாடிக்கையாளர்கள் குறிப்பிட்டவை")}>
             {REVIEW_TOPICS.slice(0, 6).map(([topic, n]) => <li key={topic}>{topic} <b>{n}</b></li>)}
           </ul>
           <a className="text-link" href={GOOGLE_REVIEWS_URL} target="_blank" rel="noreferrer">{t("Read all reviews on Google", "அனைத்து மதிப்புரைகளும் கூகுளில்")} <ArrowUpRight size={15} /></a>
@@ -380,7 +380,7 @@ function Branches() {
     <section id="branches" className="hs">
       <div className="container br">
         <div className="br-head">
-          <span className="eyebrow">{t("Find us", "எங்களைக் காண")}</span>
+          <span className="eyebrow">{t("Find us", "எங்களைச் சந்திக்க")}</span>
           <h2 className="display-3 words"><Split text={t("Our shop and market counters", "எங்கள் கடை மற்றும் சந்தைக் கவுண்டர்கள்")} /></h2>
           <p className="lead">{SHOP.address}</p>
           <Link to="/branches" className="text-link">{t("Branches and delivery area", "கிளைகள் மற்றும் டெலிவரி பகுதி")} <ArrowRight size={15} /></Link>

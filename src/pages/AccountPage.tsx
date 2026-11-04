@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import {
-  User, MapPin, Package, Repeat, LogOut, Pencil, Plus, Trash2, Truck, ArrowRight, Settings,
-} from "lucide-react";
+import { User, MapPin, Package, Repeat, LogOut, Pencil, Plus, Trash2, Truck, ArrowRight, Settings, Mail, Phone } from "lucide-react";
+import { AccountSettings } from "@/components/AccountSettings";
 import { ORDER_STATUS_LABEL, statusBadge } from "@/data/orderStatus";
 import { useStore, type Address, type DemoOrder } from "@/store/store";
 import { Modal } from "@/components/Modal";
@@ -11,7 +10,7 @@ import { auth } from "@/api/auth";
 import { MyPlans } from "@/components/MyPlans";
 import { ApiError } from "@/api/client";
 
-type Tab = "profile" | "addresses" | "orders" | "subscriptions" | "preferences";
+type Tab = "profile" | "addresses" | "orders" | "subscriptions" | "settings";
 
 export function AccountPage() {
   const { state, signOut, signedIn, updateAddress: updateAddr, addAddress, removeAddress, toast } = useStore();
@@ -30,7 +29,7 @@ export function AccountPage() {
       setClaim((c) => ({ ...c, busy: false, error: x instanceof ApiError ? (x.fields?.password ?? x.message) : "Couldn't save the password." }));
     }
   };
-  const TAB_IDS: Tab[] = ["profile", "addresses", "orders", "subscriptions", "preferences"];
+  const TAB_IDS: Tab[] = ["profile", "addresses", "orders", "subscriptions", "settings"];
   const fromHash = TAB_IDS.find((t) => "#" + t === hash);
   const [tab, setTab] = useState<Tab>(fromHash ?? "profile");
   // footer links like /account#addresses switch the tab even when this page is already open
@@ -48,7 +47,7 @@ export function AccountPage() {
     { id: "addresses", label: "Addresses", icon: MapPin },
     { id: "orders", label: "Orders", icon: Package },
     { id: "subscriptions", label: "Subscriptions", icon: Repeat },
-    { id: "preferences", label: "Preferences", icon: Settings },
+    { id: "settings", label: "Account settings", icon: Settings },
   ];
 
   // guests land here after placing an order, so they can still see their order history
@@ -93,7 +92,7 @@ export function AccountPage() {
   const openEditAddr = (a: Address) => { setAddrForm(toAddressInput(a)); setAddrErrors({}); setAddrModal({ open: true, edit: a }); };
 
   return (
-    <section className="section" style={{ paddingTop: "var(--sp-32)" }}>
+    <section className="section acc-page">
       <div className="container">
         <div className="acc-layout">
           <aside className="acc-sidebar">
@@ -101,16 +100,17 @@ export function AccountPage() {
               <div className="acc-avatar">{state.user.name.charAt(0).toUpperCase() || "U"}</div>
               <div>
                 <strong>{state.user.name || "Guest"}</strong>
-                <span>{state.user.email}</span>
+                <span>{state.user.phone ? `+91 ${state.user.phone}` : state.user.email}</span>
               </div>
+              {state.user.loggedIn && <button className="acc-out" aria-label="Sign out" onClick={() => { signOut(); toast("Signed out"); }}><LogOut size={18} /></button>}
             </div>
             <nav className="acc-nav">
               {TABS.map((t) => (
                 <button key={t.id} className={`acc-nav-item ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)} id={t.id === "orders" ? "orders" : t.id === "addresses" ? "addresses" : undefined}>
-                  <t.icon size={18} /> {t.label}
+                  <t.icon size={18} /> <span>{t.label}</span>
                 </button>
               ))}
-              <button className="acc-nav-item danger" onClick={() => { signOut(); toast("Signed out"); }}><LogOut size={18} /> Sign out</button>
+              <button className="acc-nav-item danger" onClick={() => { signOut(); toast("Signed out"); }}><LogOut size={18} /> <span>Sign out</span></button>
             </nav>
           </aside>
 
@@ -131,9 +131,10 @@ export function AccountPage() {
                     </>
                   ) : (
                     <>
-                      <div className="acc-profile-row"><span className="label">Name</span><strong>{state.user.name || "—"}</strong></div>
-                      <div className="acc-profile-row"><span className="label">Email</span><strong>{state.user.email || "—"}</strong></div>
-                      <div className="acc-profile-row"><span className="label">Mobile</span><strong>{state.user.phone ? `+91 ${state.user.phone}` : "—"}</strong></div>
+                      <div className="acc-profile-row"><User size={18} /><div><span className="label">Name</span><strong>{state.user.name || "—"}</strong></div></div>
+                      <div className="acc-profile-row"><Mail size={18} /><div><span className="label">Email</span><strong>{state.user.email || "Not added"}</strong></div></div>
+                      <div className="acc-profile-row"><Phone size={18} /><div><span className="label">Mobile</span><strong>{state.user.phone ? `+91 ${state.user.phone}` : "—"}</strong></div></div>
+                      <button className="btn btn-ghost btn-sm acc-settings-link" onClick={() => setTab("settings")}><Settings size={14} /> Password, notifications and language</button>
                     </>
                   )}
                 </div>
@@ -234,15 +235,10 @@ export function AccountPage() {
               </div>
             )}
 
-            {tab === "preferences" && (
+            {tab === "settings" && (
               <div className="acc-pane">
-                <h1 className="title-xl mb-8">Preferences</h1>
-                <div className="card" style={{ padding: "var(--sp-6)", display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
-                  <label className="auth-check" style={{ fontSize: "var(--font-md)" }}><input type="checkbox" defaultChecked /> Email me about new products</label>
-                  <label className="auth-check" style={{ fontSize: "var(--font-md)" }}><input type="checkbox" defaultChecked /> Notify me about order updates</label>
-                  <label className="auth-check" style={{ fontSize: "var(--font-md)" }}><input type="checkbox" /> Reduce motion (respects system setting)</label>
-                  <button className="btn btn-primary mt-2" onClick={() => toast("Preferences saved (demo)", "success")}>Save preferences</button>
-                </div>
+                <h1 className="title-xl mb-8">Account settings</h1>
+                <AccountSettings />
               </div>
             )}
           </div>
@@ -323,8 +319,12 @@ export function AccountPage() {
         .acc-addr-text { font-size: var(--font-sm); color: var(--text-muted); }
         .acc-orders, .acc-subs { display: flex; flex-direction: column; gap: var(--sp-4); }
         .acc-order { padding: var(--sp-5); cursor: pointer; display: flex; flex-direction: column; gap: var(--sp-3); }
-        .acc-order-head { display: flex; justify-content: space-between; align-items: center; }
+        .acc-order-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+        .acc-order-head > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .acc-order-head span { font-size: var(--font-xs); color: var(--text-dim); }
+        .acc-order-head .badge { flex-shrink: 0; white-space: nowrap; }
+        .acc-order { border-radius: 16px; }
+        .acc-order-foot { gap: 10px; flex-wrap: wrap; }
         .acc-order-items { display: flex; flex-wrap: wrap; gap: var(--sp-3); font-size: var(--font-sm); color: var(--text-muted); }
         .acc-order-foot { display: flex; justify-content: space-between; align-items: center; }
         .acc-sub { padding: var(--sp-5); display: flex; flex-direction: column; gap: 4px; }
@@ -336,6 +336,36 @@ export function AccountPage() {
         .summary-row.total { color: var(--text); font-weight: 600; }
         .track-item { display: flex; justify-content: space-between; font-size: var(--font-sm); color: var(--text-muted); }
         @media (max-width: 800px) { .acc-layout { grid-template-columns: 1fr; } .acc-sidebar { position: static; } }
+      
+        /* ---- account: phone-first layout ---- */
+        .acc-page { padding-top: var(--sp-10); }
+        .acc-layout { grid-template-columns: 260px minmax(0, 1fr); }
+        .acc-content, .acc-pane { min-width: 0; }
+        .acc-user { position: relative; border-radius: 16px; }
+        .acc-user > div:nth-child(2) { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+        .acc-user strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .acc-out { width: 40px; height: 40px; flex-shrink: 0; display: none; place-items: center; border-radius: 50%; color: var(--error); border: 1px solid var(--border); }
+        .acc-nav-item { border-radius: 12px; }
+        .acc-profile { border-radius: 16px; gap: 0; padding: var(--sp-2) var(--sp-5); }
+        .acc-profile-row { flex-direction: row; align-items: center; gap: 14px; padding: 14px 0; }
+        .acc-profile-row:last-of-type { border-bottom: 0; }
+        .acc-profile-row > svg { color: var(--green); flex-shrink: 0; }
+        .acc-profile-row > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .acc-profile-row strong { overflow-wrap: anywhere; }
+        .acc-settings-link { align-self: flex-start; margin: 6px 0 14px; }
+        @media (max-width: 800px) {
+          .acc-page { padding-top: var(--sp-6); }
+          .acc-layout { grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
+          .acc-user { margin-bottom: var(--sp-3); padding: 14px 16px; }
+          .acc-out { display: grid; }
+          /* the sections as a 3 x 2 grid of icon tiles: everything visible, nothing scrolls sideways */
+          .acc-nav { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; overflow: visible !important; }
+          .acc-nav-item { flex-direction: column; justify-content: center; gap: 6px; min-height: 76px; padding: 10px 6px; text-align: center; font-size: 12px; font-weight: 600; line-height: 1.25; white-space: normal; background: var(--white); border: 1px solid var(--border); }
+          .acc-nav-item.active { background: var(--accent-gold-glow); border-color: var(--green); color: var(--green-deep); }
+          .acc-nav-item.danger { display: none; }
+          .acc-pane > .flex:first-child, .acc-pane > h1 { margin-bottom: var(--sp-5) !important; }
+          .acc-pane .title-xl { font-size: 1.4rem; }
+        }
       `}</style>
     </section>
   );

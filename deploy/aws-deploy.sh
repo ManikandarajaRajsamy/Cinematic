@@ -49,6 +49,10 @@ if [ "$CERT_STATUS" != "ISSUED" ]; then
   exit 0
 fi
 
+# AWS managed "SecurityHeadersPolicy": HSTS, X-Frame-Options SAMEORIGIN, X-Content-Type-Options nosniff,
+# Referrer-Policy strict-origin-when-cross-origin, X-XSS-Protection
+HEADERS_POLICY="67f7725c-6f97-4210-82d7-5512b31e9d03"
+
 echo "== distribution"
 DIST=$("$AWS" cloudfront list-distributions --query "DistributionList.Items[?Comment=='$TAG'].Id | [0]" --output text)
 if [ "$DIST" = "None" ] || [ -z "$DIST" ]; then
@@ -70,6 +74,7 @@ if [ "$DIST" = "None" ] || [ -z "$DIST" ]; then
   "DefaultCacheBehavior": {
     "TargetOriginId": "s3", "ViewerProtocolPolicy": "redirect-to-https", "Compress": true,
     "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+    "ResponseHeadersPolicyId": "$HEADERS_POLICY",
     "AllowedMethods": { "Quantity": 2, "Items": ["GET", "HEAD"] }
   },
   "CustomErrorResponses": { "Quantity": 2, "Items": [
@@ -79,6 +84,17 @@ if [ "$DIST" = "None" ] || [ -z "$DIST" ]; then
 JSON
   DIST=$("$AWS" cloudfront create-distribution --distribution-config "file://$(cygpath -m "$CFG")" --query Distribution.Id --output text)
   rm -f "$CFG"
+else
+  # an existing distribution: attach the security headers policy once
+  CUR=$("$AWS" cloudfront get-distribution-config --id "$DIST" --query DistributionConfig.DefaultCacheBehavior.ResponseHeadersPolicyId --output text)
+  if [ "$CUR" != "$HEADERS_POLICY" ]; then
+    echo "   attaching security headers"
+    RAW=$(mktemp); "$AWS" cloudfront get-distribution-config --id "$DIST" --output json > "$RAW"
+    ETAG=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['ETag'])" "$(cygpath -m "$RAW")")
+    python -c "import json,sys; d=json.load(open(sys.argv[1]))['DistributionConfig']; d['DefaultCacheBehavior']['ResponseHeadersPolicyId']=sys.argv[2]; json.dump(d,open(sys.argv[1],'w'))" "$(cygpath -m "$RAW")" "$HEADERS_POLICY"
+    "$AWS" cloudfront update-distribution --id "$DIST" --if-match "$ETAG" --distribution-config "file://$(cygpath -m "$RAW")" >/dev/null
+    rm -f "$RAW"
+  fi
 fi
 
 echo "== bucket policy (CloudFront only)"

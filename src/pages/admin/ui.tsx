@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { X, Rows3, LayoutGrid } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
   Chart, ArcElement, BarController, BarElement, CategoryScale, DoughnutController, Filler, Legend, LineController, LineElement,
@@ -8,7 +8,8 @@ import {
 
 Chart.register(ArcElement, BarController, BarElement, CategoryScale, DoughnutController, Filler, Legend, LineController, LineElement, LinearScale, PointElement, Tooltip);
 
-export const BRAND = { orange: "#FF8A2B", green: "#2FB37A", gold: "#E0A32E", cream: "#FAF7F0", grey: "#9FB5AC", red: "#FF6B5A", line: "rgba(250,247,240,0.10)" };
+// admin chart palette (indigo primary with green / orange / cyan / red), matching the admin theme
+export const BRAND = { orange: "#5B5FEF", green: "#28C76F", gold: "#FF9F43", cream: "#00B8D9", grey: "#6B7280", red: "#EA5455", line: "rgba(107,114,128,0.14)" };
 export const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 export const rupeeFmt = (rupees: number) => "₹" + Math.round(rupees).toLocaleString("en-IN");
 
@@ -43,7 +44,7 @@ export function ChartBox({ config, height = 240, label }: { config: ChartConfigu
   useEffect(() => {
     if (!ref.current) return;
     Chart.defaults.color = BRAND.grey;
-    Chart.defaults.font.family = "'Hind Madurai', system-ui, sans-serif";
+    Chart.defaults.font.family = "'Montserrat', 'DM Sans', system-ui, sans-serif";
     Chart.defaults.borderColor = BRAND.line;
     const cfg = { ...config, options: { responsive: true, maintainAspectRatio: false, animation: reducedMotion() ? false : { duration: 700 }, ...config.options } } as ChartConfiguration;
     chart.current?.destroy();
@@ -154,5 +155,27 @@ export function AdminUiStyles() {
       @media (max-width: 700px) { .kpis { grid-template-columns: 1fr; } }
       @media (prefers-reduced-motion: reduce) { .dr-back, .dr-panel, .kpi, .board-card, .page-fade, .sk div { animation: none !important; } }
     `}</style>
+  );
+}
+
+export type ViewMode = "table" | "grid";
+/** The list's view, remembered per list on this device. Phones start with the grid. */
+export function useViewMode(key: string): [ViewMode, (v: ViewMode) => void] {
+  const storeKey = `ssp-admin-view-${key}`;
+  const [mode, setMode] = useState<ViewMode>(() => {
+    try { const v = localStorage.getItem(storeKey); if (v === "table" || v === "grid") return v; } catch { /* ignore */ }
+    return window.matchMedia("(max-width: 700px)").matches ? "grid" : "table";
+  });
+  const set = (v: ViewMode) => { setMode(v); try { localStorage.setItem(storeKey, v); } catch { /* ignore */ } };
+  return [mode, set];
+}
+
+/** Two-button switch between the table and the card grid. */
+export function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange: (v: ViewMode) => void }) {
+  return (
+    <div className="vt" role="group" aria-label="View">
+      <button type="button" className={mode === "table" ? "on" : ""} aria-pressed={mode === "table"} onClick={() => onChange("table")} title="Table view"><Rows3 size={16} /><span>Table</span></button>
+      <button type="button" className={mode === "grid" ? "on" : ""} aria-pressed={mode === "grid"} onClick={() => onChange("grid")} title="Grid view"><LayoutGrid size={16} /><span>Grid</span></button>
+    </div>
   );
 }

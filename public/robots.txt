@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /manager
+Disallow: /partner
+Disallow: /promoter
+Disallow: /account
+Disallow: /checkout
+Disallow: /cart
+Disallow: /login
+Disallow: /reset-password
+Disallow: /tracking
+Disallow: /t/

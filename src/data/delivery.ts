@@ -1,7 +1,6 @@
 import { nowIST } from "@/api/mockServer";
 
-// Delivery windows offered for one-off parcels, inside the shop's hours (6:30 am – 8:30 pm).
-export const DELIVERY_SLOTS = ["7 – 10 am", "11 am – 2 pm", "4 – 7 pm"];
+export { DELIVERY_SLOTS, slotStartHour } from "./slots";
 
 /** The next `n` days in IST as YYYY-MM-DD, starting today. */
 export function upcomingDates(n: number) {

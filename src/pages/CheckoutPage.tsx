@@ -7,10 +7,10 @@ import { payUpiWithRazorpay, razorpayConfigured } from "@/lib/razorpay";
 import { DeliveryRules } from "@/components/DeliveryRules";
 import { useStore, computeTotals, productById, lineSubtotal, Address } from "@/store/store";
 import { Modal } from "@/components/Modal";
+import { PromoField } from "@/components/PromoField";
 import { AddressFields, emptyAddress, toAddressInput, validateAddress as checkAddress, type AddressInput } from "@/components/AddressFields";
 import { useDeliveryQuote } from "@/hooks/useDeliveryQuote";
 import { useDeliverySettings } from "@/api/client";
-import { DELIVERY_SLOTS, dayLabel, upcomingDates } from "@/data/delivery";
 
 const STEPS = ["Details", "Address", "Summary", "Payment", "Confirm"];
 const PAYMENT_OPTIONS = [
@@ -33,8 +33,6 @@ export function CheckoutPage() {
   const [demoPay, setDemoPay] = useState<((ok: boolean) => void) | null>(null);
   const [pickFor, setPickFor] = useState<Address | null>(null); // address being pinned on the map
   const [locatingId, setLocatingId] = useState<string | null>(null);
-  const dates = upcomingDates(3);
-  const [when, setWhen] = useState({ date: dates[0], slot: DELIVERY_SLOTS[0] });
   const pinAddress = (a: Address, lat: number, lng: number) => {
     updateAddress(a.id, { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 });
     setSelectedAddr(a.id); setErrors({});
@@ -51,14 +49,14 @@ export function CheckoutPage() {
   };
 
   const selected = state.addresses.find((x) => x.id === selectedAddr);
-  const base = computeTotals(state.cart, state.activeCoupon, 0, planPctFor);
+  const base = computeTotals(state.cart, state.activeCoupon, 0, planPctFor, state.promoPct);
   const { quote, loading: quoting } = useDeliveryQuote(selected, base.subtotal, base.hasSubscription);
   // daily plans are paid online only
   const payOptions = base.hasSubscription ? PAYMENT_OPTIONS.filter((o) => o.id === "upi") : PAYMENT_OPTIONS;
   useEffect(() => { if (base.hasSubscription && payment !== "upi") setPayment("upi"); }, [base.hasSubscription, payment]);
   const { data: settings } = useDeliverySettings();
   // the fee shown is the server's quote; the server prices the order again when it is placed
-  const totals = computeTotals(state.cart, state.activeCoupon, quote?.deliverable ? quote.fee / 100 : 0, planPctFor);
+  const totals = computeTotals(state.cart, state.activeCoupon, quote?.deliverable ? quote.fee / 100 : 0, planPctFor, state.promoPct);
 
   if (state.cart.length === 0 && !placing) {
     return (
@@ -127,7 +125,7 @@ export function CheckoutPage() {
         paymentId = await collectUpi();
         if (!paymentId) { toast("Payment cancelled. Your order wasn't placed.", "error"); setPlacing(false); return; }
       }
-      const { order, account } = await placeOrder(customer, selected, payment as "upi" | "cod", state.cart.some((l) => !l.subscription) ? when : undefined, paymentId ?? undefined);
+      const { order, account } = await placeOrder(customer, selected, payment as "upi" | "cod", undefined, paymentId ?? undefined);
       toast(`Order ${order.number} placed!`, "success");
       // replace the checkout in history: the back button cannot return to a finished checkout.
       // claimToken is only present when this order created a new account (offer to set a password).
@@ -152,8 +150,11 @@ export function CheckoutPage() {
         <div className="checkout-steps">
           {STEPS.map((s, i) => (
             <div key={s} className={`checkout-step ${i === step ? "active" : ""} ${i < step ? "done" : ""}`}>
-              <div className="checkout-step-num">{i < step ? <Check size={16} /> : i + 1}</div>
-              <span>{s}</span>
+              {/* finished steps can be opened again to make changes */}
+              <button type="button" className="checkout-step-go" disabled={i >= step} onClick={() => setStep(i)} aria-label={i < step ? `Edit ${s}` : s}>
+                <div className="checkout-step-num">{i < step ? <Check size={16} /> : i + 1}</div>
+                <span>{s}</span>
+              </button>
               {i < STEPS.length - 1 && <div className="checkout-step-line" />}
             </div>
           ))}
@@ -217,17 +218,6 @@ export function CheckoutPage() {
                   ))}
                 </div>
               )}
-              {state.cart.some((l) => !l.subscription) && (
-                <div className="co-when">
-                  <h3 className="title-md">Delivery day and time</h3>
-                  <div className="co-when-row" role="radiogroup" aria-label="Delivery day">
-                    {dates.map((d, i) => <button type="button" role="radio" aria-checked={when.date === d} key={d} className={`co-chip ${when.date === d ? "on" : ""}`} onClick={() => setWhen({ ...when, date: d })}>{dayLabel(d, i)}</button>)}
-                  </div>
-                  <div className="co-when-row" role="radiogroup" aria-label="Delivery time">
-                    {DELIVERY_SLOTS.map((s) => <button type="button" role="radio" aria-checked={when.slot === s} key={s} className={`co-chip ${when.slot === s ? "on" : ""}`} onClick={() => setWhen({ ...when, slot: s })}>{s}</button>)}
-                  </div>
-                </div>
-              )}
               <details className="addr-rules">
                 <summary>How delivery is charged</summary>
                 <DeliveryRules compact />
@@ -279,12 +269,15 @@ export function CheckoutPage() {
                 );
               })()}
               <div className="divider" />
+              {/* regular orders enter a code in the cart; plans come straight here from the plan builder, so they get the box once */}
+              {state.cart.some((l) => l.subscription) && <PromoField />}
               <div className="summary-rows">
                 <div className="summary-row"><span>Subtotal</span><span>₹{totals.subtotal}</span></div>
-                {totals.couponDiscount > 0 && <div className="summary-row discount"><span>Coupon ({state.activeCoupon})</span><span>– ₹{totals.couponDiscount}</span></div>}
+                {totals.couponDiscount > 0 && <div className="summary-row discount"><span>Promo discount</span><span>– ₹{totals.couponDiscount}</span></div>}
                 {totals.subscriptionDiscount > 0 && <div className="summary-row discount"><span>Plan discount</span><span>– ₹{totals.subscriptionDiscount}</span></div>}
                 <div className="summary-row"><span>Delivery{quote?.distanceKm != null && ` · ${quote.distanceKm.toFixed(1)} km by road`}</span><span>{quote?.saving ? <><s className="price-strike">₹{quote.baseFee! / 100}</s> </> : null}{totals.deliveryFee === 0 ? "Free" : `₹${totals.deliveryFee}`}</span></div>
-                {!!quote?.saving && settings?.discount_above_amount != null && (
+                {/* delivery already free (plans, or a 100% discount): the struck-out fee says it, no extra line */}
+                {!!quote?.saving && totals.deliveryFee > 0 && settings?.discount_above_amount != null && (
                   <div className="summary-row discount"><span>{settings.discount_percent}% off delivery (order above ₹{settings.discount_above_amount / 100})</span><span>– ₹{quote.saving / 100}</span></div>
                 )}
                 <div className="divider" style={{ margin: "8px 0" }} />
@@ -324,24 +317,23 @@ export function CheckoutPage() {
                 <div className="cf-grid">
                   <div className="cf-details">
                     <section className="cf-card">
-                      <div className="cf-card-head"><MapPin size={16} /><span>Deliver to</span></div>
+                      <div className="cf-card-head"><MapPin size={16} /><span>Deliver to</span><button type="button" className="cf-edit" onClick={() => setStep(1)}><Pencil size={12} /> Edit</button></div>
                       <strong>{selected?.label}</strong>
                       <p>{selected?.line1}{selected?.line2 ? `, ${selected.line2}` : ""}, {selected?.area} — {selected?.pincode}</p>
                       {quote?.deliverable && <p className="cf-ok"><Truck size={13} /> {quote.message}</p>}
-                      {state.cart.some((l) => !l.subscription) && <p>{dayLabel(when.date, dates.indexOf(when.date))} · {when.slot}</p>}
                     </section>
                     <section className="cf-card">
-                      <div className="cf-card-head"><Phone size={16} /><span>Contact</span></div>
+                      <div className="cf-card-head"><Phone size={16} /><span>Contact</span><button type="button" className="cf-edit" onClick={() => setStep(0)}><Pencil size={12} /> Edit</button></div>
                       <strong>{customer.name}</strong>
                       <p>{customer.phone}{customer.email && ` · ${customer.email}`}</p>
                     </section>
                     <section className="cf-card">
-                      <div className="cf-card-head"><pay.icon size={16} /><span>Payment</span></div>
+                      <div className="cf-card-head"><pay.icon size={16} /><span>Payment</span><button type="button" className="cf-edit" onClick={() => setStep(3)}><Pencil size={12} /> Edit</button></div>
                       <strong>{pay.label}</strong>
                       <p>{pay.desc}</p>
                     </section>
                     <section className="cf-card">
-                      <div className="cf-card-head"><Package size={16} /><span>Items ({items.reduce((n, x) => n + x.l.qty, 0)})</span></div>
+                      <div className="cf-card-head"><Package size={16} /><span>Items ({items.reduce((n, x) => n + x.l.qty, 0)})</span><button type="button" className="cf-edit" onClick={() => setStep(2)}><Pencil size={12} /> Edit</button></div>
                       <ul className="cf-items">
                         {items.map(({ l, p }) => (
                           <li key={`${l.productId}-${l.subscription}`}>
@@ -358,7 +350,7 @@ export function CheckoutPage() {
                     <span className="cf-receipt-title">Bill summary</span>
                     <div className="cf-rows">
                       <div><span>Subtotal</span><span>₹{totals.subtotal}</span></div>
-                      {totals.couponDiscount > 0 && <div className="cf-minus"><span>Coupon ({state.activeCoupon})</span><span>– ₹{totals.couponDiscount}</span></div>}
+                      {totals.couponDiscount > 0 && <div className="cf-minus"><span>Promo discount</span><span>– ₹{totals.couponDiscount}</span></div>}
                       {totals.subscriptionDiscount > 0 && <div className="cf-minus"><span>Plan discount</span><span>– ₹{totals.subscriptionDiscount}</span></div>}
                       <div>
                         <span>Delivery{quote?.distanceKm != null && <small> · {quote.distanceKm.toFixed(1)} km</small>}</span>
@@ -379,10 +371,10 @@ export function CheckoutPage() {
             );
           })()}
 
-          {step < 4 && <div className="checkout-nav">
-            {step > 0 && step < 4 && <button className="btn btn-ghost" onClick={() => setStep((s) => s - 1)}><ArrowLeft size={16} /> Back</button>}
+          <div className="checkout-nav">
+            {step > 0 && <button className="btn btn-ghost" onClick={() => setStep((s) => s - 1)}><ArrowLeft size={16} /> {step === 4 ? "Back to payment" : "Back"}</button>}
             {step < 4 && <button className="btn btn-primary ml-auto" onClick={next}>Continue <ArrowRight size={16} /></button>}
-          </div>}
+          </div>
         </div>
       </div>
 
@@ -420,6 +412,13 @@ export function CheckoutPage() {
         .cf-card:first-child, .cf-card:last-child { grid-column: span 2; }
         .cf-card-head { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px; }
         .cf-card-head svg { color: var(--accent-gold); }
+        .cf-edit { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); font-family: var(--font-body); font-size: 12px; letter-spacing: 0; text-transform: none; font-weight: 600; color: var(--green); background: #fff; }
+        .cf-edit:hover { border-color: var(--green); }
+        .cf-edit svg { color: currentColor !important; }
+        .checkout-step-go { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: inherit; font: inherit; padding: 0; background: none; border: 0; }
+        .checkout-step-go:not(:disabled) { cursor: pointer; }
+        .checkout-step-go:not(:disabled):hover span { text-decoration: underline; text-underline-offset: 3px; }
+        .checkout-step-go:disabled { cursor: default; opacity: 1; }
         .cf-card strong { font-size: var(--font-md); }
         .cf-card p { font-size: var(--font-sm); line-height: 1.5; overflow-wrap: anywhere; }
         .cf-ok { display: flex; align-items: center; gap: 6px; color: var(--accent-green-bright) !important; font-weight: 600; margin-top: 4px; }
@@ -498,11 +497,6 @@ export function CheckoutPage() {
         .summary-row { display: flex; justify-content: space-between; font-size: var(--font-sm); color: var(--text-muted); }
         .summary-row.discount span:last-child { color: var(--accent-green-bright); }
         .summary-row.total { font-size: var(--font-md); color: var(--text); font-weight: 600; }
-        .co-when { margin-top: var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-3); }
-        .co-when-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-        .co-chip { padding: 10px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); font-size: var(--font-sm); color: var(--text-muted); transition: border-color var(--t-fast), background var(--t-fast); }
-        .co-chip:hover { border-color: var(--accent-green); }
-        .co-chip.on { background: var(--accent-green); border-color: var(--accent-green); color: #fff; }
         .payment-options { display: flex; flex-direction: column; gap: var(--sp-3); }
         .pay-option { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; transition: all var(--t-fast); background: var(--bg-elevated); }
         .pay-option:hover { border-color: var(--border-strong); }

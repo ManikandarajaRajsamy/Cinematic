@@ -47,7 +47,7 @@ export const FAQS = [
   },
   {
     q: "How does the subscription discount work?",
-    a: "Eligible subscription orders receive a 15% discount applied at payment in the checkout demonstration. The discount is calculated dynamically and shown clearly before you place a demo order. It is applied only once per eligible order.",
+    a: "Daily plans are discounted on the product price: 5% off 7-day and 15-day plans, and 10% off 30-day plans. Delivery is free on every plan day. A promoter's code adds another 5% off the product price. The discount is shown before you pay.",
   },
   {
     q: "Is the payment real?",

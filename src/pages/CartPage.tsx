@@ -1,23 +1,22 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Minus, Trash2, ShoppingBag, ArrowRight, Tag, X, Repeat } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingBag, ArrowRight, Repeat } from "lucide-react";
+import { PromoField } from "@/components/PromoField";
 import { useStore, computeTotals, productById, lineSubtotal } from "@/store/store";
-import { COUPONS } from "@/data/catalog";
 import { useDeliveryQuote } from "@/hooks/useDeliveryQuote";
 import { useDeliverySettings } from "@/api/client";
 import { DeliveryRules } from "@/components/DeliveryRules";
 
 export function CartPage() {
-  const { state, updateQty, removeFromCart, clearCart, setCoupon, toast, planDiscountPercent, planPctFor } = useStore();
+  const { state, updateQty, removeFromCart, clearCart, toast, planDiscountPercent, planPctFor } = useStore();
   const navigate = useNavigate();
-  const [couponInput, setCouponInput] = useState(state.activeCoupon || "");
   const [confirmClear, setConfirmClear] = useState(false);
   // quote against the customer's first saved address; checkout lets them pick another
   const address = state.addresses[0];
-  const base = computeTotals(state.cart, state.activeCoupon, 0, planPctFor);
+  const base = computeTotals(state.cart, state.activeCoupon, 0, planPctFor, state.promoPct);
   const { quote } = useDeliveryQuote(address, base.subtotal, base.hasSubscription);
   const { data: settings } = useDeliverySettings();
-  const totals = computeTotals(state.cart, state.activeCoupon, quote?.deliverable ? quote.fee / 100 : 0, planPctFor);
+  const totals = computeTotals(state.cart, state.activeCoupon, quote?.deliverable ? quote.fee / 100 : 0, planPctFor, state.promoPct);
 
   if (state.cart.length === 0) {
     return (
@@ -35,13 +34,6 @@ export function CartPage() {
     );
   }
 
-  const applyCoupon = () => {
-    const code = couponInput.trim().toUpperCase();
-    if (!code) return;
-    if (COUPONS[code]) { setCoupon(code); toast(`Coupon ${code} applied`, "success"); }
-    else { toast("Invalid coupon code", "error"); }
-  };
-  const removeCoupon = () => { setCoupon(undefined); setCouponInput(""); toast("Coupon removed"); };
 
   return (
     <section className="section" style={{ paddingTop: "var(--sp-32)" }}>
@@ -93,27 +85,18 @@ export function CartPage() {
 
           <aside className="cart-summary glass">
             <h3 className="title-md mb-6">Order summary</h3>
-            <div className="coupon-field">
-              <Tag size={16} />
-              <input value={couponInput} onChange={(e) => setCouponInput(e.target.value.toUpperCase())} placeholder="Coupon code" aria-label="Coupon code" />
-              {state.activeCoupon ? (
-                <button className="btn btn-sm btn-ghost" onClick={removeCoupon}><X size={14} /></button>
-              ) : (
-                <button className="btn btn-sm btn-primary" onClick={applyCoupon}>Apply</button>
-              )}
-            </div>
-            {state.activeCoupon && <p className="coupon-applied">Applied: {COUPONS[state.activeCoupon]?.label}</p>}
-            <p className="coupon-hint">Try WELCOME10, FESTIVE50, or MADURAI20</p>
+            <PromoField />
 
             <div className="summary-rows">
               <div className="summary-row"><span>Subtotal</span><span>₹{totals.subtotal}</span></div>
-              {totals.couponDiscount > 0 && <div className="summary-row discount"><span>Coupon discount</span><span>– ₹{totals.couponDiscount}</span></div>}
+              {totals.couponDiscount > 0 && <div className="summary-row discount"><span>Promo discount</span><span>– ₹{totals.couponDiscount}</span></div>}
               {totals.subscriptionDiscount > 0 && <div className="summary-row discount"><span>Plan discount</span><span>– ₹{totals.subscriptionDiscount}</span></div>}
               <div className="summary-row">
                 <span>Delivery</span>
                 <span>{quote?.saving ? <><s className="price-strike">₹{quote.baseFee! / 100}</s> </> : null}{!address || !quote ? "At checkout" : !quote.deliverable ? "—" : totals.deliveryFee === 0 ? "Free" : `₹${totals.deliveryFee}`}</span>
               </div>
-              {!!quote?.saving && settings?.discount_above_amount != null && (
+              {/* delivery already free (plans, or a 100% discount): the struck-out fee says it, no extra line */}
+                {!!quote?.saving && totals.deliveryFee > 0 && settings?.discount_above_amount != null && (
                 <div className="summary-row discount"><span>{settings.discount_percent}% off delivery (order above ₹{settings.discount_above_amount / 100})</span><span>– ₹{quote.saving / 100}</span></div>
               )}
               <p className="cart-delivery-note">

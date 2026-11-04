@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, Eye, EyeOff, Lock, Phone, User, Mail, MessageCircle, ArrowLeft, ShoppingBag } from "lucide-react";
 import { useStore } from "@/store/store";
 import { auth, whatsappResetUrl, SHOP_PHONE } from "@/api/auth";
+import { safeNext } from "@/routes/guards";
 import { ApiError } from "@/api/client";
 
 type View = "signin" | "register" | "forgot";
@@ -48,7 +49,7 @@ export function LoginPage() {
   const { signedIn, toast } = useStore();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const next = params.get("next") || "/account";
+  const next = safeNext(params.get("next"));
   const [view, setView] = useState<View>(params.get("view") === "register" ? "register" : "signin");
   const [f, setF] = useState({ name: "", mobile: "", email: "", password: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});

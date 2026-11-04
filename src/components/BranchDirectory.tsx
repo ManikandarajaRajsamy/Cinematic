@@ -23,8 +23,8 @@ export function BranchDirectory() {
             <div className="bd-name">
               <h3>{t(b.name_en, b.name_ta || b.name_en)}</h3>
               <span className="bd-type">
-                {b.type === "SHOP" ? t("Shop", "கடை") : t("Market counter", "சந்தை கவுண்டர்")}
-                {b.is_dispatch && <><span className="bd-dot" /><Truck size={13} /> {t("Delivers online orders", "ஆன்லைன் ஆர்டர் டெலிவரி")}</>}
+                {b.type === "SHOP" ? t("Shop", "கடை") : t("Market counter", "சந்தைக் கவுண்டர்")}
+                {b.is_dispatch && <><span className="bd-dot" /><Truck size={13} /> {t("Delivers online orders", "ஆன்லைன் ஆர்டர்களை டெலிவரி செய்கிறது")}</>}
               </span>
               {b.address_en && <p>{b.address_en}</p>}
             </div>
@@ -35,7 +35,7 @@ export function BranchDirectory() {
             </div>
             <div className="bd-act">
               {b.phone && <PhoneLinks phone={b.phone} className="bd-link" />}
-              {dir && <a className="bd-link" href={dir} target="_blank" rel="noreferrer">{t("Directions", "வழி")} <ArrowUpRight size={14} /></a>}
+              {dir && <a className="bd-link" href={dir} target="_blank" rel="noreferrer">{t("Directions", "வழிகாட்டி")} <ArrowUpRight size={14} /></a>}
             </div>
           </li>
         );

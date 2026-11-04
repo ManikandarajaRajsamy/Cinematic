@@ -83,7 +83,7 @@ export interface DeliverySettings {
   district_restriction: string;
   plan_free_delivery: boolean;
   plan_discount_percent: number; // the highest plan discount, for "up to" wording
-  /** discount by plan length in days, e.g. { "7": 5, "15": 10, "30": 15 } */
+  /** discount by plan length in days, e.g. { "7": 5, "15": 5, "30": 10 } */
   plan_discounts: Record<string, number>;
   updated_at: string;
   updated_by: string;
@@ -121,7 +121,7 @@ export interface QuoteRequest {
   hasPlan?: boolean;
 }
 
-export interface OrderLineRequest { productId: string; qty: number; plan: boolean; planDays?: number; startDate?: string } // startDate: plan lines, YYYY-MM-DD
+export interface OrderLineRequest { productId: string; qty: number; plan: boolean; planDays?: number; startDate?: string; slot?: string } // plan lines: start date (YYYY-MM-DD) and daily window
 export interface CreateOrderRequest {
   lines: OrderLineRequest[];
   addressId: string;
@@ -135,9 +135,11 @@ export interface CreateOrderRequest {
   paymentRef?: string;
 }
 export interface CreatedOrderPricing {
-  items: { productId: string; productName: string; sizeLabel: string; unitPrice: number; qty: number; lineTotal: number; plan: boolean; planDays?: number; planDiscountPct?: number; startDate?: string }[];
+  items: { productId: string; productName: string; sizeLabel: string; unitPrice: number; qty: number; lineTotal: number; plan: boolean; planDays?: number; planDiscountPct?: number; startDate?: string; slot?: string }[];
   subtotal: number;
   couponDiscount: number;
+  /** a promoter's code was used: 5% off product prices; the promoter earns 10% of the product price */
+  promo?: { code: string; promoter_id: string; pct: number };
   planDiscount: number;
   deliveryFee: number;
   total: number;

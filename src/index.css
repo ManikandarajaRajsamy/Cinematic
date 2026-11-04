@@ -7,7 +7,7 @@
 /* --- Reset --- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
-body { line-height: 1.65; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; overflow-x: hidden; }
+body { line-height: 1.65; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
 img, svg, video { display: block; max-width: 100%; }
 button, input, select, textarea { font: inherit; color: inherit; background: none; border: none; outline: none; }
 button { cursor: pointer; }
@@ -300,3 +300,70 @@ strong { font-weight: 600; color: var(--text); }
 ::-webkit-scrollbar-track { background: var(--cream); }
 ::-webkit-scrollbar-thumb { background: var(--beige); border-radius: 10px; border: 2px solid var(--cream); }
 ::-webkit-scrollbar-thumb:hover { background: var(--ink-500); }
+
+/* =========================================================================
+   Mobile-first refinements (phones 360–430 px are the primary target)
+   ========================================================================= */
+/* clip sideways overflow without turning the body into its own scroll box (which would add a gutter and
+   move scrolling off the window) */
+html, body { max-width: 100%; }
+/* The page itself can never grow sideways: set on the root (the window's own scroller), never on body, which
+   would become a separate scroll box. Otherwise one slightly-too-wide element lets a phone zoom out to a wider
+   page, and the fixed film would fill that wider area beyond the sections. */
+html { overflow-x: hidden; }
+body { overflow-x: clip; }
+main, .home, footer { overflow-x: clip; }
+img, video, iframe { max-width: 100%; }
+h1, h2, h3 { overflow-wrap: break-word; }
+
+/* phones: a calmer type scale, comfortable spacing and touch-sized controls */
+@media (max-width: 600px) {
+  body { font-size: 15px; }
+  .display-1 { font-size: clamp(2.2rem, 10vw, 2.8rem); }
+  .display-2 { font-size: clamp(1.9rem, 8.4vw, 2.4rem); }
+  .display-3 { font-size: clamp(1.65rem, 7vw, 2rem); line-height: 1.15; }
+  .title-xl { font-size: 1.55rem; }
+  .title-lg { font-size: 1.35rem; }
+  .lead { font-size: 1rem; line-height: 1.65; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.14em; }
+  .btn { min-height: 44px; padding: 12px 20px; }
+  .btn-sm { min-height: 40px; padding: 9px 14px; }
+  .btn-lg { padding: 14px 24px; font-size: 13px; }
+  .input, .select, .textarea { font-size: 16px; padding: 12px 14px; } /* 16px stops iOS zooming into fields */
+  .section-sm { padding-block: var(--sp-10); }
+  .card { border-radius: 14px; }
+
+  /* dialogs open as bottom sheets */
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal-panel { width: 100%; max-width: 100% !important; max-height: 92vh; border-radius: 22px 22px 0 0; animation: sheetUp 280ms var(--ease); }
+  .modal-panel::before { content: ""; display: block; width: 40px; height: 4px; margin: 10px auto 0; border-radius: 4px; background: var(--border-strong); }
+  .modal-panel > div[style*="padding: 32px"] { padding: 18px 20px 0 !important; }
+  .toast-wrap { bottom: calc(var(--sp-4) + env(safe-area-inset-bottom)); }
+}
+@keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* tablets */
+@media (min-width: 601px) and (max-width: 1024px) {
+  .container, .container-narrow { padding-inline: var(--sp-6); }
+}
+
+/* Tamil: the script is taller and wider, so headings run a size smaller with more line height,
+   and labels drop the wide English letter-spacing and capitals */
+html[lang="ta"] h1, html[lang="ta"] h2, html[lang="ta"] h3 { line-height: 1.32; letter-spacing: 0; }
+html[lang="ta"] .display-1 { font-size: clamp(2rem, 5vw, 3.8rem); }
+html[lang="ta"] .display-2 { font-size: clamp(1.7rem, 3.8vw, 2.9rem); }
+html[lang="ta"] .display-3 { font-size: clamp(1.45rem, 2.7vw, 2.1rem); }
+html[lang="ta"] .eyebrow, html[lang="ta"] .btn, html[lang="ta"] .label { letter-spacing: 0.02em; text-transform: none; }
+html[lang="ta"] .btn { font-size: 14px; }
+html[lang="ta"] .lead, html[lang="ta"] p { line-height: 1.8; }
+
+/* Tamil: the display serif has no Tamil letters, so Tamil uses Hind Madurai throughout, at weights that stay
+   solid on screens (headings 600, body 500) */
+html[lang="ta"] { --font-display: 'Hind Madurai', 'Noto Sans Tamil', sans-serif; --font-body: 'Hind Madurai', 'Noto Sans Tamil', 'DM Sans', sans-serif; }
+html[lang="ta"] body { font-weight: 500; }
+html[lang="ta"] :is(h1, h2, h3, .display-1, .display-2, .display-3, .title-xl, .title-lg, .title-md) { font-weight: 600; }
+html[lang="ta"] em { font-style: normal; }
+html[lang="ta"] .btn { font-weight: 600; }
+
+/* site-wide: long words and numbers wrap instead of running into neighbouring text */
+:is(p, li, dd, dt, td, th, label, strong, small, a, span, h1, h2, h3, h4) { overflow-wrap: break-word; }

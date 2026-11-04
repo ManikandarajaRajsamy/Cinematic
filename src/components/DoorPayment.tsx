@@ -7,11 +7,14 @@ import { Modal } from "@/components/Modal";
 
 // The shop's UPI id for collect-on-delivery. Unset, the QR carries an id no UPI app accepts, so nothing can be paid by mistake.
 const UPI_VPA = (import.meta.env.VITE_UPI_VPA as string | undefined) || "SET-VITE_UPI_VPA";
-const DEMO_GATEWAY = !import.meta.env.VITE_UPI_VPA;
+export const DEMO_GATEWAY = !import.meta.env.VITE_UPI_VPA;
+
+/** UPI intent for a payment request: the shop as payee, the exact amount, and the request id as the reference. */
+export const upiPayUri = (requestId: string, amountPaise: number, note: string) =>
+  `upi://pay?${new URLSearchParams({ pa: UPI_VPA, pn: "Sri Sastha Paruthipaal", am: (amountPaise / 100).toFixed(2), cu: "INR", tr: requestId, tn: note })}`;
 
 /** UPI intent for one payment request: payee, exact amount and the request id as the transaction reference. */
-const upiUri = (j: Job) =>
-  `upi://pay?${new URLSearchParams({ pa: UPI_VPA, pn: "Sri Sastha Paruthipaal", am: (j.qr!.amount / 100).toFixed(2), cu: "INR", tr: j.qr!.id, tn: `Order ${j.ref}` })}`;
+const upiUri = (j: Job) => upiPayUri(j.qr!.id, j.qr!.amount, `Order ${j.ref}`);
 
 const STATUS = {
   WAITING: { label: "Waiting for payment", icon: Loader2, cls: "wait" },

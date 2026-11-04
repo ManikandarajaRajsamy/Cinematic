@@ -100,8 +100,8 @@ function DashboardBody({ data, branch, period, setPeriod, custom, setCustom }: {
     const salesTrend: ChartConfiguration = {
       type: "line",
       data: { labels: days.map(short), datasets: [
-        { label: "Online", data: byDay(m.cur, (o) => o.payment !== "cod"), borderColor: BRAND.green, backgroundColor: "rgba(47,179,122,0.18)", fill: true, tension: 0.35 },
-        { label: "COD", data: byDay(m.cur, (o) => o.payment === "cod"), borderColor: BRAND.orange, backgroundColor: "rgba(255,138,43,0.15)", fill: true, tension: 0.35 },
+        { label: "Online", data: byDay(m.cur, (o) => o.payment !== "cod"), borderColor: BRAND.green, backgroundColor: "rgba(40,199,111,0.14)", fill: true, tension: 0.35 },
+        { label: "COD", data: byDay(m.cur, (o) => o.payment === "cod"), borderColor: BRAND.orange, backgroundColor: "rgba(91,95,239,0.14)", fill: true, tension: 0.35 },
       ] },
       options: { plugins: { tooltip: tooltipRupees, legend: { position: "bottom" } }, scales: { y: { ticks: { callback: (v) => rupeeFmt(Number(v)) } } } },
     };
@@ -110,7 +110,7 @@ function DashboardBody({ data, branch, period, setPeriod, custom, setCustom }: {
     const eventsNew = m.events.filter((e) => inR(dayOf(e.created_at), from, to)).length;
     const byType = {
       type: "doughnut",
-      data: { labels: ["Delivery", "Subscription", "Event"], datasets: [{ data: [delivery, subsNew, eventsNew], backgroundColor: [BRAND.orange, BRAND.green, BRAND.gold], borderColor: "#00241F", borderWidth: 3 }] },
+      data: { labels: ["Delivery", "Subscription", "Event"], datasets: [{ data: [delivery, subsNew, eventsNew], backgroundColor: [BRAND.orange, BRAND.green, BRAND.gold], borderColor: "#FFFFFF", borderWidth: 3 }] },
       options: { cutout: "62%", plugins: { legend: { position: "bottom" } } },
     } as ChartConfiguration;
     const branchIds = [...new Set(m.cur.map((o) => o.branch_id))];
@@ -130,7 +130,7 @@ function DashboardBody({ data, branch, period, setPeriod, custom, setCustom }: {
     const visitors: ChartConfiguration = {
       type: "line",
       data: { labels: days.map(short), datasets: [
-        { label: "Visitors", data: visitorsByDay, borderColor: BRAND.cream, backgroundColor: "rgba(250,247,240,0.1)", tension: 0.35, fill: true },
+        { label: "Visitors", data: visitorsByDay, borderColor: BRAND.cream, backgroundColor: "rgba(0,184,217,0.12)", tension: 0.35, fill: true },
         { label: "Orders", data: ordersByDay, borderColor: BRAND.orange, tension: 0.35 },
       ] },
       options: { plugins: { legend: { position: "bottom" } }, scales: { y: { ticks: { precision: 0 } } } },
@@ -138,7 +138,7 @@ function DashboardBody({ data, branch, period, setPeriod, custom, setCustom }: {
     const plans = [7, 15, 30].map((n) => m.subs.filter((s) => s.plan_days === n && s.status !== "COMPLETED").length);
     const subsPlan = {
       type: "doughnut",
-      data: { labels: ["7 days", "15 days", "30 days"], datasets: [{ data: plans, backgroundColor: [BRAND.gold, BRAND.orange, BRAND.green], borderColor: "#00241F", borderWidth: 3 }] },
+      data: { labels: ["7 days", "15 days", "30 days"], datasets: [{ data: plans, backgroundColor: [BRAND.gold, BRAND.orange, BRAND.green], borderColor: "#FFFFFF", borderWidth: 3 }] },
       options: { cutout: "62%", plugins: { legend: { position: "bottom" } } },
     } as ChartConfiguration;
     const areaCount = new Map<string, number>();

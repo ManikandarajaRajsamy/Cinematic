@@ -1,67 +1,53 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Check, Phone, Bike, Clock, Package, X, KeyRound, RotateCcw, Search, History } from "lucide-react";
+import {
+  Check, Phone, Bike, Package, X, KeyRound, RotateCcw, Search, ArrowLeft, ChevronRight, ReceiptText, BadgeCheck, UserCheck, Wallet, PackageCheck, Clock,
+} from "lucide-react";
 import { ops, inr, guestTracking, type CustomerOrderView } from "@/api/ops";
 import { ApiError } from "@/api/client";
+import { OrderPay } from "@/components/OrderPay";
 import { useStore } from "@/store/store";
 import { ORDER_STATUS_LABEL, PAYMENT_STATUS_LABEL, statusBadge } from "@/data/orderStatus";
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "");
+const ACTIVE: CustomerOrderView["status"][] = ["pending", "confirmed", "picked_up"];
+const statusLabel = (o: CustomerOrderView) => (o.status === "confirmed" && o.partner ? "Partner assigned" : o.status === "picked_up" ? "Out for delivery" : ORDER_STATUS_LABEL[o.status]);
+const itemsLine = (o: CustomerOrderView) => o.items.map((i) => `${i.name} ${i.size} × ${i.qty}${i.plan ? ` · ${i.planDays}-day plan` : ""}`).join(", ");
 
-/** The order's seven steps. Payment appears as a step only when it was due on delivery; online payment is its own record. */
+/** The order's stages: done, the current one highlighted, then what is still to come. */
 function Timeline({ o }: { o: CustomerOrderView }) {
   const steps = [
-    { label: "Order placed", note: `${o.items.reduce((n, i) => n + i.qty, 0)} item(s) · ${inr(o.total)}`, at: o.steps.placed },
-    { label: "Order confirmed", note: "Confirmed by the shop.", at: o.steps.confirmed },
-    { label: "Delivery partner assigned", note: o.partner ? `${o.partner.name} · ${o.partner.mobile}` : "The shop assigns a partner.", at: o.steps.assigned },
-    { label: "Out for delivery", note: "Your partner has picked up the order.", at: o.steps.picked },
-    ...(o.payment === "cod" ? [{ label: "Payment confirmed", note: "Paid by UPI QR at your door, verified by the payment gateway.", at: o.steps.paid }] : []),
-    { label: "OTP verified", note: "You shared your delivery OTP with the partner.", at: o.steps.otp },
-    { label: "Delivered", note: "Enjoy your paruthipaal!", at: o.steps.delivered },
+    { icon: ReceiptText, label: "Order placed", note: `${o.items.reduce((n, i) => n + i.qty, 0)} item(s) · ${inr(o.total)}`, at: o.steps.placed },
+    { icon: BadgeCheck, label: "Order confirmed", note: "The shop has confirmed your order.", at: o.steps.confirmed },
+    { icon: UserCheck, label: "Partner assigned", note: o.partner ? `${o.partner.name} will deliver your order.` : "A delivery partner will be assigned.", at: o.steps.assigned },
+    { icon: Bike, label: "Out for delivery", note: "Your order is on its way.", at: o.steps.picked },
+    ...(o.payment === "cod" ? [{ icon: Wallet, label: "Payment confirmed", note: "Pay the partner by cash or UPI QR at your door.", at: o.steps.paid }] : []),
+    { icon: KeyRound, label: "OTP verified", note: "Share your OTP once you receive the order.", at: o.steps.otp },
+    { icon: PackageCheck, label: "Delivered", note: "Enjoy your paruthipaal!", at: o.steps.delivered },
   ];
   const stopped = o.status === "rejected" || o.status === "cancelled";
+  const currentIdx = stopped ? -1 : steps.findIndex((s) => !s.at);
   return (
-    <ol className="tl">
-      {steps.map((s, i) => (
-        <li key={s.label} className={s.at ? "done" : ""}>
-          <span className="tl-dot">{s.at ? <Check size={14} /> : i + 1}</span>
-          <div><strong>{s.label}{s.at && <time> · {fmt(s.at)}</time>}</strong><p>{s.note}</p></div>
-        </li>
-      ))}
+    <ol className="tkl">
+      {steps.map((s, i) => {
+        const st = s.at ? "done" : i === currentIdx ? "now" : "next";
+        return (
+          <li key={s.label} className={st}>
+            <span className="tk2-dot">{st === "done" ? <Check size={15} strokeWidth={3} /> : <s.icon size={16} />}</span>
+            <div className="tk2-body">
+              <div className="tk2-row"><strong>{s.label}</strong>{s.at && <time>{fmt(s.at)}</time>}{st === "now" && <span className="tk2-now">In progress</span>}</div>
+              <p>{s.note}</p>
+            </div>
+          </li>
+        );
+      })}
       {stopped && (
-        <li className="tl-stop"><span className="tl-dot"><X size={14} /></span>
-          <div><strong>{ORDER_STATUS_LABEL[o.status]}</strong><p>{o.reject_reason || "This order won't be delivered. Call us if you have questions."}</p></div>
+        <li className="stop">
+          <span className="tk2-dot"><X size={15} strokeWidth={3} /></span>
+          <div className="tk2-body"><div className="tk2-row"><strong>{ORDER_STATUS_LABEL[o.status]}</strong></div><p>{o.reject_reason || "This order won't be delivered. Please call us if you have any questions."}</p></div>
         </li>
       )}
     </ol>
-  );
-}
-
-const ACTIVE: CustomerOrderView["status"][] = ["pending", "confirmed", "picked_up"];
-const statusLabel = (o: CustomerOrderView) => (o.status === "confirmed" && o.partner ? "Confirmed · partner assigned" : o.status === "picked_up" ? "Out for delivery" : ORDER_STATUS_LABEL[o.status]);
-
-/** Order history: active orders first, then past ones; picking one shows its details. */
-function OrderHistoryList({ orders, current, onPick }: { orders: CustomerOrderView[]; current?: string; onPick: (ref: string) => void }) {
-  const groups: [string, CustomerOrderView[]][] = [["Active orders", orders.filter((o) => ACTIVE.includes(o.status))], ["Past orders", orders.filter((o) => !ACTIVE.includes(o.status))]];
-  return (
-    <nav className="ohl" aria-label="Order history">
-      {groups.map(([title, list]) => list.length > 0 && (
-        <div key={title}>
-          <h2 className="label">{title} ({list.length})</h2>
-          <ul>
-            {list.map((o) => (
-              <li key={o.ref}>
-                <button className={o.ref === current ? "on" : ""} aria-current={o.ref === current} onClick={() => onPick(o.ref)}>
-                  <span className="ohl-top"><strong>{o.ref}</strong><span className={`badge ${statusBadge(o.status)}`}>{statusLabel(o)}</span></span>
-                  <span className="ohl-sub">{fmt(o.created_at)} · {inr(o.total)}</span>
-                  <span className="ohl-sub">{o.items.map((i) => `${i.size} × ${i.qty}${i.plan ? " plan" : ""}`).join(", ")}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </nav>
   );
 }
 
@@ -80,18 +66,36 @@ function TrackLookup({ onFound }: { onFound: (o: CustomerOrderView, mobile: stri
     finally { setBusy(false); }
   };
   return (
-    <form className="card tl-find" style={{ padding: "var(--sp-5)" }} onSubmit={submit} noValidate>
+    <form className="card tk2-find" onSubmit={submit} noValidate>
       <div className="field"><label className="label" htmlFor="tf-ref">Order ID</label><input id="tf-ref" className="input" placeholder="SSP-123456" value={ref} onChange={(e) => setRef(e.target.value)} /></div>
       <div className="field"><label className="label" htmlFor="tf-mob">Mobile number</label><input id="tf-mob" className="input" inputMode="numeric" maxLength={10} placeholder="10-digit number" value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))} /></div>
-      <button className="btn btn-primary" disabled={busy}><Search size={15} /> {busy ? "Finding…" : "Track"}</button>
-      {err && <span className="field-error" style={{ gridColumn: "1 / -1" }}>{err}</span>}
+      <button className="btn btn-primary" disabled={busy}><Search size={15} /> {busy ? "Finding…" : "Track order"}</button>
+      {err && <span className="field-error">{err}</span>}
     </form>
   );
 }
 
-/** Order details: status timeline, items and prices, payment and the delivery partner once assigned. */
+/** One order in the list. */
+function OrderRow({ o, on, onPick }: { o: CustomerOrderView; on: boolean; onPick: () => void }) {
+  return (
+    <li>
+      <button className={`tk2-row-btn ${on ? "on" : ""}`} aria-current={on} onClick={onPick}>
+        <span className="tk2-row-icon"><Package size={18} /></span>
+        <span className="tk2-row-main">
+          <span className="tk2-row-top"><strong>{o.ref}</strong><span className={`badge ${statusBadge(o.status)}`}>{statusLabel(o)}</span></span>
+          <span className="tk2-row-sub">{itemsLine(o)}</span>
+          <span className="tk2-row-sub">{fmt(o.created_at)} · <b>{inr(o.total)}</b></span>
+        </span>
+        <ChevronRight size={18} className="tk2-chev" />
+      </button>
+    </li>
+  );
+}
+
+/** My orders: order list, and for each order a summary, the delivery timeline, the partner, the OTP and the bill. */
 export function TrackingPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id, token } = useParams<{ id: string; token: string }>();
+  const [linkErr, setLinkErr] = useState("");
   const { state } = useStore();
   const [orders, setOrders] = useState<CustomerOrderView[] | null>(null);
   const refs = state.orders.map((o) => o.number);
@@ -107,162 +111,233 @@ export function TrackingPage() {
 
   const localRef = state.orders.find((o) => o.id === id)?.number;
   const [selected, setSelected] = useState<string | undefined>(localRef ?? id);
+  // phones show the list or one order; a link to a specific order opens straight on it
+  const [showDetail, setShowDetail] = useState(!!id);
   const current = orders?.find((o) => o.ref === selected) ?? orders?.[0];
   const [otpMsg, setOtpMsg] = useState("");
   const resendOtp = async (ref: string) => {
-    try { await ops.resendCustomerOtp(ref, refs); setOtpMsg("A new OTP is ready below."); load(); }
+    try { await ops.resendCustomerOtp(ref, refs); setOtpMsg("A new OTP is ready."); load(); }
     catch (e) { setOtpMsg((e as Error).message); }
   };
+  const pick = (ref: string) => { setSelected(ref); setShowDetail(true); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
   // guest tracking: order ID + mobile number, remembered on this device
   const found = (o: CustomerOrderView, mobile: string) => {
     guestTracking.add(o.ref, mobile);
     setTrackedKey(guestTracking.get().map((t) => t.ref).join(","));
-    setSelected(o.ref);
+    pick(o.ref);
   };
   const lookup = <TrackLookup onFound={found} />;
 
+  // opened from the tracking link the shop shared: remember the order on this device and open it
+  useEffect(() => {
+    if (!token) return;
+    ops.orderByLink(token).then((o) => {
+      guestTracking.addLink(o.ref, token);
+      setTrackedKey(guestTracking.get().map((t) => t.ref).join(","));
+      setSelected(o.ref); setShowDetail(true);
+    }).catch((e) => setLinkErr(e instanceof ApiError ? e.message : "Couldn't open this order link."));
+  }, [token]);
+
   if (orders && !current) {
     return (
-      <section className="section">
+      <section className="section tk2-page">
         <div className="container-narrow">
           <span className="eyebrow">Order tracking</span>
           <h1 className="display-3 mt-4">Track your order</h1>
+          {linkErr && <p className="field-error mt-4">{linkErr}</p>}
           <p className="lead mt-4">Enter your order ID and the mobile number you ordered with. No account needed. {!state.user.loggedIn && <>Have an account? <Link to="/login?next=/tracking" className="text-link">Sign in</Link> to see all your orders.</>}</p>
           <div className="mt-8">{lookup}</div>
         </div>
+        <TrackStyles />
       </section>
     );
   }
 
+  const active = (orders ?? []).filter((o) => ACTIVE.includes(o.status));
+  const past = (orders ?? []).filter((o) => !ACTIVE.includes(o.status));
   return (
-    <section className="section">
-      <div className="container od">
-        <span className="eyebrow">My orders</span>
-        <h1 className="display-3 mt-4">Order history</h1>
-        <details className="od-find mt-4"><summary><Search size={14} /> Track another order</summary><div className="mt-4">{lookup}</div></details>
-        <div className="od-layout mt-8">
-          {orders && orders.length > 0 && <OrderHistoryList orders={orders} current={current?.ref} onPick={setSelected} />}
-        {!current ? <div className="skeleton" style={{ height: 320 }} /> : (
-          <div className="od-grid">
-            <div className="card od-main">
-              <div className="od-head">
-                <div><span className="label">Order ID</span><strong className="od-ref">{current.ref}</strong><span className="od-meta">{fmt(current.created_at)} · {current.payment === "cod" ? "Pay on delivery" : "Paid online (UPI)"}</span></div>
-                <span className={`badge ${statusBadge(current.status)}`}>{statusLabel(current)}</span>
-              </div>
-              <Timeline o={current} />
-              {current.history.length > 0 && (
-                <div className="od-hist">
-                  <h2 className="label"><History size={13} /> Order history</h2>
-                  <ol>{current.history.map((h, i) => <li key={i}><time>{fmt(h.at)}</time><span>{h.action}</span></li>)}</ol>
+    <section className="section tk2-page">
+      <div className="container">
+        <div className={`tk2 ${showDetail ? "detail" : "list"}`}>
+          <aside className="tk2-list">
+            <span className="eyebrow">My orders</span>
+            <h1 className="title-xl">Order history</h1>
+            <details className="tk2-more"><summary><Search size={14} /> Track another order</summary><div className="mt-4">{lookup}</div></details>
+            {!orders ? <div className="skeleton" style={{ height: 200 }} /> : (
+              <>
+                {active.length > 0 && <><h2 className="label">Active ({active.length})</h2><ul>{active.map((o) => <OrderRow key={o.ref} o={o} on={o.ref === current?.ref} onPick={() => pick(o.ref)} />)}</ul></>}
+                {past.length > 0 && <><h2 className="label">Past ({past.length})</h2><ul>{past.map((o) => <OrderRow key={o.ref} o={o} on={o.ref === current?.ref} onPick={() => pick(o.ref)} />)}</ul></>}
+              </>
+            )}
+          </aside>
+
+          {current && (
+            <div className="tk2-detail">
+              <button className="tk2-back" onClick={() => setShowDetail(false)}><ArrowLeft size={16} /> All orders</button>
+
+              <div className="card tk2-summary">
+                <div className="tk2-sum-top">
+                  <div><span className="label">Order</span><strong className="tk2-ref">{current.ref}</strong></div>
+                  <span className={`badge ${statusBadge(current.status)}`}>{statusLabel(current)}</span>
                 </div>
+                <p className="tk2-items">{itemsLine(current)}</p>
+                <div className="tk2-facts">
+                  <span><Clock size={14} /> {fmt(current.created_at)}</span>
+                  <span><Wallet size={14} /> {PAYMENT_STATUS_LABEL[current.payment_status]}</span>
+                  <strong>{inr(current.total)}</strong>
+                </div>
+              </div>
+
+              {current.pay_online_due != null && <OrderPay key={current.ref} order={current} refs={refs} onPaid={load} />}
+
+              {(current.otp || (current.status === "picked_up" && current.otp_status !== "VERIFIED")) && (
+                <div className="card tk2-otp">
+                  <span className="label"><KeyRound size={14} /> Delivery OTP</span>
+                  {current.otp ? <strong className="tk2-otp-code" aria-label={`OTP ${current.otp.split("").join(" ")}`}>{current.otp}</strong>
+                    : <p>Your OTP expired or was locked after wrong attempts.</p>}
+                  <p>Please share your delivery OTP with the delivery partner only after receiving your order.</p>
+                  <button className="btn btn-text btn-sm" onClick={() => resendOtp(current.ref)}><RotateCcw size={14} /> Get a new OTP</button>
+                  {otpMsg && <span className="tk2-note">{otpMsg}</span>}
+                </div>
+              )}
+
+              {current.partner && (
+                <div className="card tk2-partner">
+                  <span className="tk2-avatar"><Bike size={20} /></span>
+                  <div><strong>{current.partner.name}</strong><span>Delivery partner{current.assigned_at && ` · assigned ${fmt(current.assigned_at)}`}</span>{current.delivery_status && <span>{current.delivery_status}</span>}</div>
+                  <a className="tk2-call" href={`tel:${current.partner.mobile}`} aria-label={`Call ${current.partner.name}`}><Phone size={18} /></a>
+                </div>
+              )}
+
+              <div className="card tk2-tl">
+                <h2 className="label">Order status</h2>
+                <Timeline o={current} />
+              </div>
+
+              <div className="card tk2-bill">
+                <h2 className="label">Bill details</h2>
+                <ul>{current.items.map((i, k) => <li key={k}><span>{i.name} {i.size} × {i.qty}{i.plan && ` · ${i.planDays}-day plan`}</span><b>{inr(i.lineTotal)}</b></li>)}</ul>
+                <dl>
+                  <div><dt>Subtotal</dt><dd>{inr(current.subtotal)}</dd></div>
+                  {current.promo_discount > 0 && <div><dt>Promo discount</dt><dd>−{inr(current.promo_discount)}</dd></div>}
+                  {current.discount - (current.promo_discount ?? 0) > 0 && <div><dt>{current.promo_discount > 0 ? "Plan discount" : "Discount"}</dt><dd>−{inr(current.discount - (current.promo_discount ?? 0))}</dd></div>}
+                  <div><dt>Delivery</dt><dd>{current.delivery_fee ? inr(current.delivery_fee) : "Free"}</dd></div>
+                  <div className="tot"><dt>Total</dt><dd>{inr(current.total)}</dd></div>
+                </dl>
+                <p className="tk2-note">{current.payment === "cod" ? "Pay on delivery by cash or UPI QR" : `Paid online by UPI${current.online_paid?.verified_at ? ` · verified ${fmt(current.online_paid.verified_at)}` : ""}`}</p>
+              </div>
+
+              {current.history.length > 0 && (
+                <details className="card tk2-log">
+                  <summary>Full activity ({current.history.length})</summary>
+                  <ol>{current.history.map((h, i) => <li key={i}><time>{fmt(h.at)}</time><span>{h.action}</span></li>)}</ol>
+                </details>
               )}
             </div>
-            <aside className="od-side">
-              {(current.otp || (current.status === "picked_up" && current.otp_status !== "VERIFIED")) && (
-                <div className="card od-box od-otp">
-                  <h2 className="title-md"><KeyRound size={18} /> Delivery OTP</h2>
-                  {current.otp ? <strong className="od-otp-code" aria-label={`OTP ${current.otp.split("").join(" ")}`}>{current.otp}</strong>
-                    : <p className="muted">Your OTP has expired or was locked after wrong attempts.</p>}
-                  <p>Please share your delivery OTP with the delivery partner only after receiving your order.</p>
-                  <button className="btn btn-text" onClick={() => resendOtp(current.ref)}><RotateCcw size={14} /> Get a new OTP</button>
-                  {otpMsg && <span className="od-otp-msg">{otpMsg}</span>}
-                </div>
-              )}
-              <div className="card od-box">
-                <h2 className="title-md">Delivery partner</h2>
-                {current.partner ? (
-                  <>
-                    <p className="od-partner"><Bike size={18} /> <strong>{current.partner.name}</strong></p>
-                    <dl className="od-pkv">
-                      <div><dt>Mobile</dt><dd>{current.partner.mobile}</dd></div>
-                      {current.assigned_at && <div><dt>Assigned</dt><dd>{fmt(current.assigned_at)}</dd></div>}
-                      {current.delivery_status && <div><dt>Delivery</dt><dd>{current.delivery_status}</dd></div>}
-                    </dl>
-                    <a className="btn btn-primary btn-sm" href={`tel:${current.partner.mobile}`}><Phone size={14} /> Call {current.partner.name.split(" ")[0]}</a>
-                  </>
-                ) : <p className="muted">{current.status === "pending" ? "Shown here once the shop confirms your order and assigns a partner." : current.status === "rejected" || current.status === "cancelled" ? "—" : "The shop will assign a partner shortly."}</p>}
-                {current.delivery_date && <p className="od-when"><Clock size={15} /> {new Date(current.delivery_date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}{current.delivery_slot && ` · ${current.delivery_slot}`}</p>}
-              </div>
-              <div className="card od-box">
-                <h2 className="title-md">Items</h2>
-                <ul className="od-items">
-                  {current.items.map((i, k) => <li key={k}><Package size={14} /> <span>{i.name} {i.size} × {i.qty}{i.plan && ` · ${i.planDays}-day plan`}</span><b>{inr(i.lineTotal)}</b></li>)}
-                </ul>
-                <dl className="od-sum">
-                  <div><dt>Subtotal</dt><dd>{inr(current.subtotal)}</dd></div>
-                  {current.discount > 0 && <div><dt>Discount</dt><dd>−{inr(current.discount)}</dd></div>}
-                  <div><dt>Delivery</dt><dd>{current.delivery_fee ? inr(current.delivery_fee) : "Free"}</dd></div>
-                  <div className="od-total"><dt>Total</dt><dd>{inr(current.total)}</dd></div>
-                </dl>
-                <p className="od-paystat"><span className="label">Payment</span> {PAYMENT_STATUS_LABEL[current.payment_status]}</p>
-                {current.online_paid && <p className="od-paystat"><span className="label">Paid online</span> {fmt(current.online_paid.at)}{current.online_paid.verified_at && ` · verified ${fmt(current.online_paid.verified_at)}`}</p>}
-              </div>
-            </aside>
-          </div>
-        )}
+          )}
         </div>
       </div>
-      <style>{`
-        .od-layout { display: grid; grid-template-columns: 300px 1fr; gap: var(--sp-6); align-items: start; }
-        .od-layout > .skeleton:only-child, .od-layout > .od-grid:only-child { grid-column: 1 / -1; }
-        .ohl { display: flex; flex-direction: column; gap: var(--sp-5); position: sticky; top: calc(var(--nav-h) + 16px); max-height: calc(100vh - var(--nav-h) - 32px); overflow-y: auto; }
-        .ohl ul { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
-        .ohl button { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--white); transition: border-color var(--t-fast); }
-        .ohl button:hover { border-color: var(--border-strong); }
-        .ohl button.on { border-color: var(--accent-gold); box-shadow: inset 3px 0 0 var(--accent-gold); }
-        .ohl-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-        .ohl-top .badge { font-size: 11px; padding: 2px 8px; }
-        .ohl-sub { font-size: var(--font-xs); color: var(--text-dim); }
-        .od-meta { font-size: var(--font-xs); color: var(--text-dim); }
-        .tl time { font-weight: 400; font-size: var(--font-xs); color: var(--text-dim); }
-        .od-pkv { width: 100%; display: flex; flex-direction: column; gap: 4px; font-size: var(--font-sm); }
-        .od-pkv div { display: flex; justify-content: space-between; gap: 12px; }
-        .od-pkv dt { color: var(--text-dim); }
-        @media (max-width: 1000px) { .od-layout { grid-template-columns: 1fr; } .ohl { position: static; max-height: none; } .ohl ul { flex-direction: row; overflow-x: auto; } .ohl li { min-width: 240px; } }
-        .od-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: var(--sp-6); align-items: start; }
-        .od-main { padding: var(--sp-8); }
-        .od-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-4); padding-bottom: var(--sp-6); border-bottom: 1px solid var(--border); margin-bottom: var(--sp-6); }
-        .od-head > div { display: flex; flex-direction: column; gap: 4px; }
-        .od-ref { font-family: var(--font-display); font-size: 1.8rem; }
-        .tl { display: flex; flex-direction: column; }
-        .tl li { position: relative; display: flex; gap: var(--sp-4); padding-bottom: var(--sp-6); }
-        .tl li:not(:last-child)::before { content: ""; position: absolute; left: 15px; top: 32px; bottom: 0; width: 2px; background: var(--border); }
-        .tl li.done:not(:last-child)::before { background: var(--green); }
-        .tl-dot { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--border-strong); font-size: 13px; font-weight: 700; color: var(--text-dim); background: var(--white); }
-        .tl li.done .tl-dot { background: var(--green); border-color: var(--green); color: #fff; }
-        .tl li strong { display: block; margin-top: 4px; }
-        .tl li p { font-size: var(--font-sm); }
-        .tl li:not(.done):not(.tl-stop) strong { color: var(--text-dim); font-weight: 500; }
-        .tl-stop .tl-dot { background: var(--error); border-color: var(--error); color: #fff; }
-        .od-side { display: flex; flex-direction: column; gap: var(--sp-4); }
-        .od-box { padding: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-3); align-items: flex-start; }
-        .od-find summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--font-sm); font-weight: 600; color: var(--accent-gold); }
-        .tl-find { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--sp-3); align-items: end; }
-        .od-hist { margin-top: var(--sp-6); padding-top: var(--sp-5); border-top: 1px solid var(--border); }
-        .od-hist h2 { display: flex; align-items: center; gap: 6px; }
-        .od-hist ol { margin-top: var(--sp-3); display: flex; flex-direction: column; gap: 8px; }
-        .od-hist li { display: grid; grid-template-columns: 130px 1fr; gap: 12px; font-size: var(--font-sm); }
-        .od-hist time { color: var(--text-dim); font-size: var(--font-xs); padding-top: 2px; }
-        @media (max-width: 600px) { .tl-find { grid-template-columns: 1fr; } .od-hist li { grid-template-columns: 1fr; gap: 0; } }
-        .od-otp { border-color: var(--accent-gold); background: var(--accent-gold-glow); }
-        .od-otp h2 { display: flex; align-items: center; gap: 8px; }
-        .od-otp-code { font-family: var(--font-body); font-size: 2.4rem; font-weight: 700; letter-spacing: 0.3em; color: var(--accent-gold-bright); }
-        .od-otp p { font-size: var(--font-sm); }
-        .od-otp-msg { font-size: var(--font-xs); color: var(--text-muted); }
-        .od-partner, .od-when { display: flex; align-items: center; gap: 8px; }
-        .od-partner svg, .od-when svg { color: var(--green); }
-        .od-when { font-size: var(--font-sm); color: var(--text-muted); }
-        .od-items { width: 100%; display: flex; flex-direction: column; gap: 8px; font-size: var(--font-sm); }
-        .od-items li { display: flex; align-items: center; gap: 8px; }
-        .od-items span { flex: 1; }
-        .od-sum { width: 100%; display: flex; flex-direction: column; gap: 6px; padding-top: var(--sp-3); border-top: 1px solid var(--border); font-size: var(--font-sm); }
-        .od-sum div { display: flex; justify-content: space-between; }
-        .od-total { font-weight: 700; font-size: var(--font-md); }
-        .od-paystat { font-size: var(--font-sm); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-        @media (max-width: 1180px) { .od-grid { grid-template-columns: 1fr; } }
-        @media (max-width: 800px) { .od-grid { grid-template-columns: 1fr; } .od-main { padding: var(--sp-5); } }
-      `}</style>
+      <TrackStyles />
     </section>
+  );
+}
+
+function TrackStyles() {
+  return (
+    <style>{`
+      .tk2-page { padding-top: var(--sp-10); }
+      .tk2 { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: var(--sp-8); align-items: start; }
+      .tk2-list { display: flex; flex-direction: column; gap: var(--sp-3); position: sticky; top: calc(var(--nav-h) + 16px); }
+      .tk2-list .title-xl { margin-bottom: var(--sp-2); }
+      .tk2-list h2.label { margin-top: var(--sp-3); }
+      .tk2-list ul { display: flex; flex-direction: column; gap: var(--sp-2); }
+      .tk2-more summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--font-sm); font-weight: 600; color: var(--green); }
+      .tk2-row-btn { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px; text-align: left; background: var(--white); border: 1px solid var(--border); border-radius: 16px; transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+      .tk2-row-btn:hover { box-shadow: var(--shadow-md); }
+      .tk2-row-btn.on { border-color: var(--green); box-shadow: 0 0 0 1px var(--green); }
+      .tk2-row-icon { width: 40px; height: 40px; flex-shrink: 0; border-radius: 12px; display: grid; place-items: center; background: var(--accent-gold-glow); color: var(--green); }
+      .tk2-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+      .tk2-row-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+      .tk2-row-top strong { font-size: var(--font-sm); }
+      .tk2-row-top .badge { font-size: 11px; padding: 2px 8px; white-space: nowrap; }
+      .tk2-row-sub { font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tk2-row-sub b { color: var(--text); }
+      .tk2-chev { color: var(--text-dim); flex-shrink: 0; }
+      .tk2-find { padding: var(--sp-5); display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--sp-3); align-items: end; }
+      .tk2-find .field-error { grid-column: 1 / -1; }
+      .tk2-list .tk2-find { grid-template-columns: 1fr; }
+
+      .tk2-detail { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+      .tk2-back { display: none; align-items: center; gap: 6px; font-size: var(--font-sm); font-weight: 600; color: var(--green); padding: 4px 0; }
+      .tk2-detail .card { border-radius: 18px; }
+      .tk2-summary { padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3); }
+      .tk2-sum-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+      .tk2-sum-top > div { display: flex; flex-direction: column; gap: 2px; }
+      .tk2-ref { font-family: var(--font-display); font-size: 1.7rem; line-height: 1.1; }
+      .tk2-items { font-size: var(--font-sm); color: var(--text); }
+      .tk2-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: var(--sp-3); border-top: 1px solid var(--border); font-size: 13px; color: var(--text-muted); }
+      .tk2-facts span { display: inline-flex; align-items: center; gap: 6px; }
+      .tk2-facts strong { margin-left: auto; font-family: var(--font-display); font-size: 1.5rem; }
+      .tk2-otp { padding: var(--sp-5); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; background: var(--accent-gold-glow); border-color: var(--green); }
+      .tk2-otp .label { display: inline-flex; align-items: center; gap: 6px; color: var(--green-deep); }
+      .tk2-otp-code { font-size: clamp(2rem, 9vw, 2.6rem); letter-spacing: 0.3em; color: var(--green-deep); line-height: 1.1; }
+      .tk2-otp p { font-size: var(--font-sm); }
+      .tk2-partner { padding: var(--sp-4) var(--sp-5); display: flex; align-items: center; gap: 12px; }
+      .tk2-avatar { width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: var(--green); color: #fff; }
+      .tk2-partner > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+      .tk2-partner span { font-size: 12px; color: var(--text-dim); }
+      .tk2-call { width: 46px; height: 46px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: var(--accent-gold-glow); color: var(--green); }
+      .tk2-tl { padding: var(--sp-5); }
+
+      ol.tkl { list-style: none; display: flex; flex-direction: column; margin-top: var(--sp-4); }
+      ol.tkl li { position: relative; display: flex; gap: 14px; padding-bottom: 22px; }
+      ol.tkl li:last-child { padding-bottom: 0; }
+      ol.tkl li:not(:last-child)::before { content: ""; position: absolute; left: 17px; top: 38px; bottom: 2px; width: 2px; border-radius: 2px; background: var(--border-strong); }
+      ol.tkl li.done:not(:last-child)::before { background: var(--green); }
+      .tk2-dot { width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: var(--bg-sunk); color: var(--text-dim); border: 2px solid var(--border-strong); }
+      li.done .tk2-dot { background: var(--green); border-color: var(--green); color: #fff; }
+      li.now .tk2-dot { background: #fff; border-color: var(--gold); color: var(--gold); box-shadow: 0 0 0 5px rgba(255, 122, 24, 0.15); animation: tk2Pulse 2s ease-in-out infinite; }
+      li.stop .tk2-dot { background: var(--error); border-color: var(--error); color: #fff; }
+      @keyframes tk2Pulse { 50% { box-shadow: 0 0 0 9px rgba(255, 122, 24, 0.05); } }
+      .tk2-body { flex: 1; min-width: 0; padding-top: 6px; }
+      .tk2-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+      .tk2-row strong { font-size: var(--font-base); }
+      li.next .tk2-row strong { color: var(--text-dim); font-weight: 500; }
+      .tk2-row time { font-size: 12px; color: var(--text-dim); }
+      .tk2-now { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold); }
+      .tk2-body p { font-size: 13px; margin-top: 2px; color: var(--text-muted); }
+      li.next .tk2-body p { color: var(--text-dim); }
+
+      .tk2-bill { padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3); }
+      .tk2-bill ul { display: flex; flex-direction: column; gap: 8px; font-size: var(--font-sm); }
+      .tk2-bill li { display: flex; justify-content: space-between; gap: 12px; }
+      .tk2-bill dl { display: flex; flex-direction: column; gap: 6px; padding-top: var(--sp-3); border-top: 1px dashed var(--border-strong); font-size: var(--font-sm); }
+      .tk2-bill dl div { display: flex; justify-content: space-between; }
+      .tk2-bill dt { color: var(--text-muted); }
+      .tk2-bill .tot { font-weight: 700; font-size: var(--font-md); padding-top: 6px; }
+      .tk2-note { font-size: 12px; color: var(--text-dim); }
+      .tk2-log { padding: var(--sp-4) var(--sp-5); }
+      .tk2-log summary { cursor: pointer; font-size: var(--font-sm); font-weight: 600; color: var(--green); }
+      .tk2-log ol { list-style: none; margin-top: var(--sp-3); display: flex; flex-direction: column; gap: 8px; }
+      .tk2-log li { display: grid; grid-template-columns: 120px 1fr; gap: 10px; font-size: 13px; }
+      .tk2-log time { color: var(--text-dim); font-size: 12px; }
+
+      /* phones and small tablets: the list, or one order with a back link */
+      @media (max-width: 900px) {
+        .tk2 { grid-template-columns: 1fr; gap: var(--sp-4); }
+        .tk2-list { position: static; }
+        .tk2.detail .tk2-list { display: none; }
+        .tk2.list .tk2-detail { display: none; }
+        .tk2-back { display: inline-flex; }
+        .tk2-page { padding-top: var(--sp-6); }
+      }
+      @media (max-width: 560px) {
+        .tk2-find { grid-template-columns: 1fr; }
+        .tk2-summary, .tk2-tl, .tk2-bill, .tk2-otp { padding: var(--sp-4); }
+        .tk2-ref { font-size: 1.4rem; }
+        .tk2-log li { grid-template-columns: 1fr; gap: 0; }
+      }
+    `}</style>
   );
 }

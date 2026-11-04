@@ -1,9 +1,9 @@
 // The customer auth service. Every sign-in related call goes through here, so another method (OTP) can be
 // added later without touching checkout or the account screens. The mobile number is the customer ID.
 import { request } from "./client";
-import type { PublicCustomer, StoredAddress } from "./authServer";
+import type { PublicCustomer, StoredAddress, Preferences } from "./authServer";
 
-export type { PublicCustomer };
+export type { PublicCustomer, Preferences };
 const KEY = "ssp-customer-session";
 
 interface SavedSession { token: string; expires_at: string }
@@ -36,6 +36,9 @@ export const auth = {
   signOut: async () => { try { await request("POST", "/api/auth/logout"); } finally { customerSession.clear(); } },
   updateProfile: (p: { name: string; email: string }) => request<{ customer: PublicCustomer }>("PUT", "/api/me/profile", p).then((r) => r.customer),
   saveAddresses: (a: StoredAddress[]) => request("PUT", "/api/me/addresses", a),
+  changePassword: (p: { current: string; password: string; confirm: string }) => request<{ customer: PublicCustomer }>("PUT", "/api/me/password", p).then((r) => r.customer),
+  savePreferences: (p: Partial<Preferences>) => request<{ customer: PublicCustomer }>("PUT", "/api/me/preferences", p).then((r) => r.customer),
+  signOutOthers: () => request<{ ok: true }>("POST", "/api/me/signout-others"),
   resetInfo: (token: string) => request<{ mobile_hint: string }>("GET", `/api/auth/reset/${token}`),
   resetPassword: (token: string, password: string, confirm: string) => request<{ ok: true }>("POST", "/api/auth/reset", { token, password, confirm }),
 };

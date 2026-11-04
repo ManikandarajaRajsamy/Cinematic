@@ -57,7 +57,7 @@ export function ParcelOrder({ heading = true, initialId = "" }: { heading?: bool
                     className={`po-size ${on ? "on" : ""}`} onClick={() => { setPickedId(p.id); setQty((q) => Math.min(q, p.maxQty ?? 10)); }}>
                     <span className="po-size-l">{v.label}</span>
                     <span className="po-size-p">₹{v.price}</span>
-                    <span className="po-size-s">{!v.inStock ? t("Sold out today", "இன்று தீர்ந்தது") : serves ? t(serves[0], serves[1]) : p.tagline}</span>
+                    <span className="po-size-s">{!v.inStock ? t("Sold out today", "இன்று விற்றுத் தீர்ந்தது") : serves ? t(serves[0], serves[1]) : p.tagline}</span>
                   </button>
                 );
               })}
@@ -71,10 +71,10 @@ export function ParcelOrder({ heading = true, initialId = "" }: { heading?: bool
               <div className="po-total"><span>{t("Total", "மொத்தம்")}</span><strong>₹{(variant?.price ?? 0) * qty}</strong></div>
             </div>
             <div className="po-actions">
-              <button className="btn btn-ghost btn-lg" onClick={() => add(false)} disabled={!variant?.inStock}><ShoppingBag size={16} /> {t("Add to cart", "கூடையில் சேர்")}</button>
-              <button className="btn btn-primary btn-lg" onClick={() => add(true)} disabled={!variant?.inStock}>{t("Order now", "இப்போதே ஆர்டர்")} <ArrowRight size={16} /></button>
+              <button className="btn btn-ghost btn-lg" onClick={() => add(false)} disabled={!variant?.inStock}><ShoppingBag size={16} /> {t("Add to cart", "கூடையில் சேர்க்கவும்")}</button>
+              <button className="btn btn-primary btn-lg" onClick={() => add(true)} disabled={!variant?.inStock}>{t("Order now", "இப்போதே ஆர்டர் செய்யுங்கள்")} <ArrowRight size={16} /></button>
             </div>
-            <p className="po-fine">{t("Delivered hot in Madurai district. The delivery fee for your address is shown at checkout.", "மதுரை மாவட்டத்தில் சூடாக டெலிவரி. உங்கள் முகவரிக்கான கட்டணம் செக்அவுட்டில் காட்டப்படும்.")}</p>
+            <p className="po-fine">{t("Delivered hot in Madurai district, 10 am – 8 pm. Orders after 8 pm are delivered the next day. The delivery fee for your address is shown at checkout.", "மதுரை மாவட்டத்தில் காலை 10 முதல் இரவு 8 மணி வரை சூடாக டெலிவரி. இரவு 8 மணிக்குப் பிறகு வரும் ஆர்டர்கள் மறுநாள் டெலிவரி செய்யப்படும். உங்கள் முகவரிக்கான கட்டணம் செக்அவுட்டில் காட்டப்படும்.")}</p>
           </>
         )}
       </div>

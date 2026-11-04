@@ -7,11 +7,18 @@ import type {
 } from "./types";
 import bcrypt from "bcryptjs";
 import { COUPONS } from "@/data/catalog";
+import { ADMIN_SECTIONS, MANAGER_DEFAULT, SECTION_OF_RESOURCE, SHARED_READS, type AdminSection, type StaffRole } from "@/data/adminSections";
+import {
+  PromoError, addCommission, commissionTotals, discountOn, earnCommissions, normaliseCode, promoterByCode,
+  publicPromoter, reverseCommissions, upsertPromoter, PROMO_DISCOUNT_PCT, type PromoDb,
+} from "./promoServer";
+import { DELIVERY_SLOTS, REGULAR_HOURS, regularDeliveryDate } from "@/data/slots";
 import { drivingDistanceKm } from "@/lib/googleMaps";
 import {
   OpsError, addDays, createOrderJob, ensureDailyJobs, istDate, jobForPartner, partnerFromToken, partnerLogin, partnerSummary,
   planCalendar, publicPartner, subscriptionAction, upsertPartner,
   type Job, type OpsDb, type ServerOrder, type Subscription,
+  fullAddress, landmarkOf,
 } from "./opsServer";
 import { AuthError, handleAuth, isValidMobile, normaliseMobile, sessionCustomer, upsertCustomerForOrder, type AuthDb, type StoredAddress as AccountAddress } from "./authServer";
 import { EVENT_RATE_PER_LITRE, SERVICE_OPTIONS, type ServiceOption } from "@/data/events";
@@ -22,6 +29,7 @@ export interface EventRequest {
   service: ServiceOption; litres: number; venue: string; notes: string;
   base_amount: number; // paise, litres × rate, computed here
   status: "NEW" | "CONFIRMED" | "CANCELLED" | "COMPLETED";
+  promo_code?: string; // a promoter's code: no discount on events, the promoter earns commission
   advance_paid?: number; // paise, recorded by admin when confirming
   balance_collected?: number; // paise, collected by the delivery partner on the event date
   branch_id?: string;
@@ -31,7 +39,17 @@ export const SUPER_ADMINS = ["8825687662", "9942421611"];
 const KEY = "ssp-db-v1";
 const STATE_KEY = "ssp-state-v1"; // the shop's own storage, where customer addresses live
 
-interface Db extends AuthDb, OpsDb {
+/** A staff member who can sign in to the admin workspace (besides the built-in owners). */
+export interface StaffUser {
+  mobile: string; name: string; role: StaffRole; sections: AdminSection[]; active: boolean; created_at: string; updated_by: string;
+  password_hash?: string; session_version?: number; // staff sign in at /manager with mobile + password
+}
+
+interface Db extends AuthDb, OpsDb, PromoDb {
+  staff?: StaffUser[];
+  staffSessions?: Record<string, { mobile: string; sv: number; expires: number }>;
+  /** owners' passwords (set on their first sign-in) */
+  ownerAuth?: Record<string, { password_hash: string; session_version: number }>;
   branches: Branch[];
   holidays: BranchHoliday[];
   products: Product[];
@@ -58,8 +76,8 @@ const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 9)}`;
 
 /* ---------------- seed ---------------- */
 const SEED_BY = "seed";
-/** Daily plan discount by length: 7 days 5%, 15 days 10%, 30 days 15%. */
-export const PLAN_DISCOUNTS: Record<string, number> = { "7": 5, "15": 10, "30": 15 };
+/** Daily plan discount by length: 7 days 5%, 15 days 5%, 30 days 10%. */
+export const PLAN_DISCOUNTS: Record<string, number> = { "7": 5, "15": 5, "30": 10 };
 export const planPct = (s: Pick<DeliverySettings, "plan_discounts" | "plan_discount_percent">, days?: number) =>
   days ? s.plan_discounts?.[String(days)] ?? s.plan_discount_percent : s.plan_discount_percent;
 /** Delivery charges by road distance, as set by the shop (paise). */
@@ -108,7 +126,7 @@ function seed(): Db {
       slabs: DELIVERY_SLABS,
       max_radius_km: 12, distance_method: "ROAD", free_above_amount: null, district_restriction: "Madurai",
       discount_above_amount: 20000, discount_percent: 50, support_phone: "8825687662", demo_distance_fallback: true,
-      plan_free_delivery: true, plan_discount_percent: 15, plan_discounts: { ...PLAN_DISCOUNTS }, updated_at: stamp(), updated_by: SEED_BY,
+      plan_free_delivery: true, plan_discount_percent: 10, plan_discounts: { ...PLAN_DISCOUNTS }, updated_at: stamp(), updated_by: SEED_BY,
     },
     audit: [], sales: {}, quoteCache: {}, logs: [],
   };
@@ -144,6 +162,12 @@ function migrate(d: Db) {
     d.settings.plan_discounts = { ...PLAN_DISCOUNTS };
     d.settings.plan_discount_percent = 15;
     done.push("plan-discounts-tiered");
+  }
+  if (!done.includes("plan-discounts-5-5-10")) {
+    // the shop's plan offers: 7 and 15 days 5% off, 30 days 10% off (promoter codes add their own 5%)
+    d.settings.plan_discounts = { ...PLAN_DISCOUNTS };
+    d.settings.plan_discount_percent = 10;
+    done.push("plan-discounts-5-5-10");
   }
   if (!done.includes("prices-75-150")) {
     // the shop's prices: 500 ML ₹75, 1 L ₹150
@@ -360,7 +384,7 @@ function validateSettings(s: DeliverySettings) {
 }
 
 /* ---------------- orders (server-side pricing) ---------------- */
-async function priceOrder(req: CreateOrderRequest): Promise<CreatedOrderPricing> {
+async function priceOrder(req: CreateOrderRequest, at?: { lat: number; lng: number; district: string }): Promise<CreatedOrderPricing> {
   const s = load().settings;
   const items = req.lines.map((l) => {
     const p = load().products.find((x) => x.id === l.productId && x.is_active && x.sell_online);
@@ -373,17 +397,20 @@ async function priceOrder(req: CreateOrderRequest): Promise<CreatedOrderPricing>
     if (l.plan && !(String(days) in (s.plan_discounts ?? {}))) throw new ApiError(422, "Choose a 7, 15 or 30-day plan");
     const today = istDate();
     if (l.plan && l.startDate && (!/^\d{4}-\d{2}-\d{2}$/.test(l.startDate) || l.startDate < today || l.startDate > addDays(today, 30))) throw new ApiError(422, "Choose a plan start date within the next 30 days");
-    return { productId: p.id, productName: p.name_en, sizeLabel: p.size_label_en, unitPrice: pp.price, qty: l.qty, lineTotal: pp.price * l.qty * days, plan: l.plan, planDays: l.plan ? days : undefined, planDiscountPct: l.plan ? planPct(s, days) : undefined, startDate: l.plan ? l.startDate || today : undefined };
+    return { productId: p.id, productName: p.name_en, sizeLabel: p.size_label_en, unitPrice: pp.price, qty: l.qty, lineTotal: pp.price * l.qty * days, plan: l.plan, planDays: l.plan ? days : undefined, planDiscountPct: l.plan ? planPct(s, days) : undefined, startDate: l.plan ? l.startDate || today : undefined, slot: l.plan && DELIVERY_SLOTS.includes(String(l.slot)) ? String(l.slot) : undefined };
   });
   const subtotal = items.reduce((n, i) => n + i.lineTotal, 0);
   const coupon = req.couponCode ? COUPONS[req.couponCode.toUpperCase()] : undefined;
-  const couponDiscount = !coupon ? 0 : coupon.type === "percent" ? Math.round((subtotal * coupon.value) / 100) : Math.min(coupon.value * 100, subtotal);
+  // a promoter's code: 5% off product prices only (regular parcels and plans); delivery is added after
+  const promoter = !coupon ? promoterByCode(load(), req.couponCode) : undefined;
+  const couponDiscount = promoter ? discountOn(subtotal) : !coupon ? 0 : coupon.type === "percent" ? Math.round((subtotal * coupon.value) / 100) : Math.min(coupon.value * 100, subtotal);
   const planDiscount = items.filter((i) => i.plan).reduce((n, i) => n + Math.round((i.lineTotal * (i.planDiscountPct ?? 0)) / 100), 0);
-  const q = await quote({ addressId: req.addressId, subtotal, hasPlan: items.some((i) => i.plan) });
+  const q = await quote(at ? { lat: at.lat, lng: at.lng, district: at.district, subtotal, hasPlan: items.some((i) => i.plan) } : { addressId: req.addressId, subtotal, hasPlan: items.some((i) => i.plan) });
   if (!q.deliverable) throw new ApiError(422, q.message);
   const total = Math.max(0, subtotal - couponDiscount - planDiscount + q.fee);
   return {
     items, subtotal, couponDiscount, planDiscount, deliveryFee: q.fee, total,
+    promo: promoter ? { code: promoter.code, promoter_id: promoter.id, pct: PROMO_DISCOUNT_PCT } : undefined,
     delivery: { branch_id: q.branch!.id, distance_km: q.distanceKm!, method: q.method!, freeReason: q.freeReason },
     order_ref: "SSP-" + Math.floor(100000 + Math.random() * 900000), account: { created: false },
   };
@@ -391,17 +418,52 @@ async function priceOrder(req: CreateOrderRequest): Promise<CreatedOrderPricing>
 
 /* ---------------- router ---------------- */
 const hits: number[] = [];
+/** wrong promoter number/code attempts per mobile, for the promoter self-check page */
+const promoTries: Record<string, number[]> = {};
+/** Wrong sign-in attempts per account (staff or partner): 5 within 15 minutes locks that number for 15 minutes. */
+const loginFails: Record<string, number[]> = {};
+const LOCK_MS = 15 * 60_000;
+function loginLocked(key: string) {
+  const recent = (loginFails[key] ?? []).filter((t) => Date.now() - t < LOCK_MS);
+  loginFails[key] = recent;
+  if (recent.length >= 5) throw new ApiError(429, "Too many wrong attempts. This number is locked for 15 minutes.");
+}
+const loginFailed = (key: string) => { (loginFails[key] ??= []).push(Date.now()); };
+const loginOk = (key: string) => { delete loginFails[key]; };
 function rateLimit() {
   const t = Date.now();
   while (hits.length && t - hits[0] > 60_000) hits.shift();
   if (hits.length >= 120) throw new ApiError(429, "Too many admin requests. Wait a minute and try again.");
   hits.push(t);
 }
+/** The signed-in staff member: a built-in owner (super admin), or an active staff account. */
+function staffFor(token?: string): { mobile: string; name: string; role: StaffRole; sections: AdminSection[] } | null {
+  if (!token) return null;
+  const sess = load().staffSessions?.[token];
+  if (sess && SUPER_ADMINS.includes(sess.mobile)) {
+    const o = load().ownerAuth?.[sess.mobile];
+    if (!o || sess.expires < Date.now() || sess.sv !== o.session_version) return null;
+    return { mobile: sess.mobile, name: "Owner", role: "SUPER_ADMIN", sections: [...ADMIN_SECTIONS.map((x) => x.id), "team"] };
+  }
+  const s = sess ? load().staff?.find((x) => x.mobile === sess.mobile && x.active) : undefined;
+  if (!sess || !s || sess.expires < Date.now() || sess.sv !== (s.session_version ?? 1)) return null;
+  return { mobile: s.mobile, name: s.name, role: s.role, sections: s.role === "SUPER_ADMIN" ? [...ADMIN_SECTIONS.map((x) => x.id), "team"] : s.sections };
+}
 function requireAdmin(token?: string) {
-  const phone = token?.replace(/^admin:/, "");
-  if (!phone || !SUPER_ADMINS.includes(phone)) throw new ApiError(403, "Admins only");
+  const who = staffFor(token);
+  if (!who) throw new ApiError(403, "Admins only");
   rateLimit();
-  return phone;
+  return who.mobile;
+}
+/** Every admin request is checked against the person's sections (super admins can open everything). */
+function requireSection(token: string | undefined, resource: string, method: string) {
+  const who = staffFor(token);
+  if (!who) return; // the route's own requireAdmin answers with "Admins only"
+  if (who.role === "SUPER_ADMIN") return;
+  if (method === "GET" && SHARED_READS.has(resource)) return;
+  const section = SECTION_OF_RESOURCE[resource];
+  const allowed = section === undefined ? [] : Array.isArray(section) ? section : [section];
+  if (!allowed.some((x) => who.sections.includes(x))) throw new ApiError(403, "You don't have access to this section. Ask the super admin.");
 }
 const visibleBranches = () => load().branches.filter((b) => !b.deleted).sort((a, b) => a.sort_order - b.sort_order);
 
@@ -410,6 +472,7 @@ export function handle(method: string, path: string, body: unknown, token?: stri
   // or a second delivery partner) may have changed it, e.g. picked the same order a moment ago.
   db = null;
   const [, , scope, resource, id] = path.split("/"); // "", "api", scope, resource, id
+  if (scope === "admin") requireSection(token, resource, method);
   const ops = opsRoute(method, scope, resource, id, body, token, customerToken, partnerToken);
   if (ops !== NOT_OPS) return ops;
   const route = `${method} /${scope}/${resource}${id ? "/:id" : ""}`;
@@ -471,6 +534,11 @@ export function handle(method: string, path: string, body: unknown, token?: stri
         venue: String(b.venue ?? "").trim(), notes: String(b.notes ?? "").trim(),
         base_amount: Math.round(litres * EVENT_RATE_PER_LITRE), status: "NEW",
       };
+      // event orders: a promoter's code gives no discount; the promoter earns 10% of the paruthipaal price
+      // (litres × rate), never of transport or live-counter service charges
+      const evPromoter = promoterByCode(d, (b as { promo_code?: string }).promo_code);
+      if ((b as { promo_code?: string }).promo_code && !evPromoter) throw new ApiError(422, "This promo code is not valid.", { promo_code: "Not a valid code" });
+      if (evPromoter) { Object.assign(req, { promo_code: evPromoter.code }); addCommission(d, evPromoter, "EVENT", req.ref, req.id, req.name, req.base_amount, 0); }
       (d.eventRequests ??= []).unshift(req);
       commit();
       return req;
@@ -484,15 +552,84 @@ export function handle(method: string, path: string, body: unknown, token?: stri
       const { status, advance_paid } = body as { status: EventRequest["status"]; advance_paid?: number };
       audit(by, "event_request", r.ref, "status", { status: r.status, advance_paid: r.advance_paid ?? 0 }, { status, advance_paid: advance_paid ?? r.advance_paid ?? 0 });
       r.status = status;
+      if (status === "COMPLETED") earnCommissions(d, (c) => c.kind === "EVENT" && c.source_id === r.id);
+      if (status === "CANCELLED") reverseCommissions(d, (c) => c.kind === "EVENT" && c.source_id === r.id, "event cancelled");
       if (advance_paid != null) r.advance_paid = Math.max(0, Math.min(r.base_amount, Math.round(advance_paid)));
       r.branch_id ??= "br-main";
       commit();
       return r;
     }
-    case "POST /auth/admin": {
-      const phone = String((body as { phone?: string })?.phone ?? "").replace(/\D/g, "").slice(-10);
-      if (!SUPER_ADMINS.includes(phone)) throw new ApiError(403, "This number is not an admin");
-      return { token: `admin:${phone}`, phone };
+    case "POST /auth/admin":
+    case "POST /auth/staff": {
+      // Owners, super admins and managers all sign in with mobile + password and get a 12-hour session.
+      // An owner without a password yet sets it on this first sign-in.
+      const sb = (body ?? {}) as { mobile?: string; phone?: string; password?: string };
+      const mobile = String(sb.mobile ?? sb.phone ?? "").replace(/\D/g, "").slice(-10);
+      const password = String(sb.password ?? "");
+      const lockKey = `staff:${mobile}`;
+      try { loginLocked(lockKey); } catch (e) { return Promise.reject(e); }
+      const owner = SUPER_ADMINS.includes(mobile);
+      const staff = owner ? undefined : (d.staff ?? []).find((x) => x.mobile === mobile && x.active);
+      if (!owner && !staff) { loginFailed(lockKey); return Promise.reject(new ApiError(401, "Mobile number or password is incorrect.")); }
+      const first = owner && !d.ownerAuth?.[mobile];
+      if (first && password.length < 6) return Promise.reject(new ApiError(422, "First sign-in for this owner number: choose a password of at least 6 characters.", { password: "At least 6 characters" }, "OWNER_SETUP"));
+      const check = first ? Promise.resolve(true)
+        : bcrypt.compare(password, owner ? d.ownerAuth![mobile].password_hash : staff!.password_hash ?? "!");
+      return check.then((ok) => {
+        if (!ok) { loginFailed(lockKey); throw new ApiError(401, "Mobile number or password is incorrect."); }
+        loginOk(lockKey);
+        if (first) (d.ownerAuth ??= {})[mobile] = { password_hash: bcrypt.hashSync(password, 8), session_version: 1 };
+        const sv = owner ? d.ownerAuth![mobile].session_version : staff!.session_version ?? 1;
+        const t = Array.from(crypto.getRandomValues(new Uint8Array(16)), (x) => x.toString(16).padStart(2, "0")).join("");
+        (d.staffSessions ??= {})[t] = { mobile, sv, expires: Date.now() + 12 * 3600_000 };
+        audit(`staff:${mobile}`, "staff", mobile, first ? "owner password set · signed in" : "signed in", null, null);
+        commit();
+        const who = staffFor(t)!;
+        return { token: t, phone: mobile, role: who.role, sections: who.sections, name: who.name, first };
+      });
+    }
+    /* admin: who am I, and team & access */
+    case "GET /admin/me": {
+      const who = staffFor(token);
+      if (!who) throw new ApiError(403, "Admins only");
+      return who;
+    }
+    case "GET /admin/staff": requireAdmin(token);
+      return { owners: SUPER_ADMINS, staff: (d.staff ?? []).map((x) => { const { password_hash: h, session_version: v, ...pub } = x; void v; return { ...pub, has_password: !!h }; }) };
+    case "POST /admin/staff":
+    case "PUT /admin/staff/:id": {
+      const by = requireAdmin(token);
+      const s = body as Partial<StaffUser>;
+      const f: Record<string, string> = {};
+      const mobile = String(s.mobile ?? "").replace(/\D/g, "").slice(-10);
+      if (!String(s.name ?? "").trim()) f.name = "Name is required";
+      if (!/^[6-9]\d{9}$/.test(mobile)) f.mobile = "Enter a valid 10-digit mobile number";
+      if (SUPER_ADMINS.includes(mobile)) f.mobile = "This number is an owner already";
+      const list = (d.staff ??= []);
+      if (list.some((x) => x.mobile === mobile && x.mobile !== id)) f.mobile = "This number already has access";
+      const role: StaffRole = s.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "MANAGER";
+      const valid = new Set<string>(ADMIN_SECTIONS.map((x) => x.id));
+      const sections = (Array.isArray(s.sections) ? s.sections : MANAGER_DEFAULT).filter((x) => valid.has(x)) as AdminSection[];
+      if (role === "MANAGER" && !sections.length) f.sections = "Choose at least one section";
+      const password = String((s as { password?: string }).password ?? "");
+      const prev = id ? list.find((x) => x.mobile === id) : undefined;
+      if (!prev && password.length < 6) f.password = "Set a password of at least 6 characters";
+      if (password && password.length < 6) f.password = "At least 6 characters";
+      if (Object.keys(f).length) throw new ApiError(422, "Please fix the highlighted fields", f);
+      const existing = id ? list.find((x) => x.mobile === id) : undefined;
+      if (id && !existing) throw new ApiError(404, "Staff member not found");
+      const next: StaffUser = {
+        mobile, name: String(s.name).trim(), role, sections: role === "MANAGER" ? sections : [], active: s.active ?? true, created_at: existing?.created_at ?? stamp(), updated_by: by,
+        password_hash: existing?.password_hash, session_version: existing?.session_version ?? 1,
+      };
+      // a new password or removing access signs them out everywhere
+      if (password) { next.password_hash = bcrypt.hashSync(password, 8); if (existing) next.session_version! += 1; }
+      if (existing && existing.active && !next.active) next.session_version! += 1;
+      if (existing) Object.assign(existing, next); else list.push(next);
+      audit(by, "staff", mobile, existing ? "update" : "create", null, { role, sections: next.sections, active: next.active, password_changed: !!password });
+      commit();
+      const { password_hash: _h, session_version: _v, ...pub } = next; void _h; void _v;
+      return pub;
     }
 
     /* admin: branches */
@@ -642,7 +779,10 @@ function recordOrder(d: Db, req: CreateOrderRequest, pricing: CreatedOrderPricin
     subtotal: pricing.subtotal, discount: pricing.couponDiscount + pricing.planDiscount, delivery_fee: pricing.deliveryFee, total: pricing.total,
     payment: req.payment ?? "upi", status: "pending",
     payment_status: req.payment === "cod" ? "DUE" : "ONLINE",
-    delivery_date: req.deliveryDate, delivery_slot: req.deliverySlot,
+    // regular items go out between 10 am and 8 pm; an order placed after 8 pm is delivered the next day
+    ...(pricing.items.some((i) => !i.plan)
+      ? { delivery_date: regularDeliveryDate(), delivery_slot: REGULAR_HOURS.label }
+      : { delivery_date: req.deliveryDate, delivery_slot: req.deliverySlot }),
     payment_ref: req.payment !== "cod" ? req.paymentRef : undefined,
     history: [{ at: stamp(), action: req.payment === "cod" ? "order placed · pay on delivery" : `order placed · paid online${req.paymentRef ? ` (${req.paymentRef})` : ""}`, by: `customer:${mobile}` }],
   };
@@ -656,9 +796,21 @@ function recordOrder(d: Db, req: CreateOrderRequest, pricing: CreatedOrderPricin
       customer: { mobile, name, email }, address, area: address?.area ?? "", branch_id: order.branch_id,
       product_id: i.productId, product_name: p?.name_en ?? i.productName, size: i.sizeLabel, qty: i.qty,
       plan_days: i.planDays ?? 7, discount_pct: i.planDiscountPct ?? 0, amount_paid: i.lineTotal - discount, payment: order.payment,
-      start_date: i.startDate ?? today, records: {}, pauses: [], cancelled_at: null, cancel_end_date: null, notes: "",
+      slot: i.slot, start_date: i.startDate ?? today, records: {}, pauses: [], cancelled_at: null, cancel_end_date: null, notes: "",
     };
     (d.subs ??= []).unshift(s);
+  }
+  // promoter: attribution on the order, and a pending commission per kind (regular parcels; each plan)
+  const pm = pricing.promo ? d.promoters?.find((p) => p.id === pricing.promo!.promoter_id) : undefined;
+  if (pm) {
+    Object.assign(order, { promo_code: pm.code, promoter_id: pm.id, promo_discount: pricing.couponDiscount });
+    const regularBase = pricing.items.filter((i) => !i.plan).reduce((n, i) => n + i.lineTotal, 0);
+    addCommission(d, pm, "REGULAR", order.ref, order.ref, name, regularBase, discountOn(regularBase));
+    for (const s of (d.subs ?? []).filter((x) => x.order_ref === order.ref)) {
+      const line = pricing.items.find((i) => i.plan && i.productId === s.product_id);
+      if (line) addCommission(d, pm, "PLAN", order.ref, s.id, name, line.lineTotal, discountOn(line.lineTotal));
+    }
+    orderLog(d, order.ref, `promo code ${pm.code} · customer saved ₹${pricing.couponDiscount / 100}`, "system");
   }
   // no delivery job yet: the admin confirms the order first (see PUT /admin/orders/:id)
 }
@@ -686,6 +838,7 @@ function syncSource(d: Db, j: Job) {
     if (o && o.status !== "cancelled" && o.status !== "rejected") {
       o.status = toOrderStatus[j.status];
       if (j.paid_at && o.payment_status === "DUE") o.payment_status = "COLLECTED";
+      if (o.status === "delivered") earnCommissions(d, (c) => c.kind === "REGULAR" && c.ref === o.ref);
     }
   } else if (j.type === "SUBSCRIPTION") {
     const s = (d.subs ?? []).find((x) => x.id === j.source_id);
@@ -694,7 +847,7 @@ function syncSource(d: Db, j: Job) {
     if (s && j.status === "FAILED") s.records[j.date] = { status: "FAILED", partner, time: j.failed_at, reason: j.fail_reason };
   } else if (j.type === "EVENT") {
     const e = (d.eventRequests ?? []).find((x) => x.id === j.source_id);
-    if (e && j.status === "DELIVERED") { e.balance_collected = (e.balance_collected ?? 0) + (j.collected?.amount ?? 0); e.status = "COMPLETED"; }
+    if (e && j.status === "DELIVERED") { e.balance_collected = (e.balance_collected ?? 0) + (j.collected?.amount ?? 0); e.status = "COMPLETED"; earnCommissions(d, (c) => c.kind === "EVENT" && c.source_id === e.id); }
   }
 }
 
@@ -732,6 +885,7 @@ function afterDelivery(d: Db, j: Job, partnerName: string) {
     `${v.delivered} of ${s.plan_days} deliveries completed.`, `Thank you for choosing Sri Sastha Paruthipaal!`,
   ].join("\n"), { kind: "PLAN_DAY", title: "Your daily Paruthipaal delivery is completed!", key: `plan-day:${s.id}:${j.date}`, job_id: j.id });
   if (v.delivered >= s.plan_days) {
+    earnCommissions(d, (c) => c.kind === "PLAN" && c.source_id === s.id);
     notify(d, s.customer.mobile, s.ref, `All ${s.plan_days} deliveries of your subscription ${s.ref} are complete. Amount paid: ₹${s.amount_paid / 100}. Renew anytime from your subscriptions page.`,
       { kind: "PLAN_DONE", title: "Your subscription is complete", key: `plan-done:${s.id}` });
     audit("system", "subscription", s.ref, "completed", null, null);
@@ -773,9 +927,29 @@ function issueOtp(d: Db, j: Job, by: string) {
 }
 
 /** The gateway's verdict on a QR payment request (webhook). Only this marks a door payment as paid. */
+/** An unpaid order paid online by the customer (UPI app or Razorpay), after the gateway confirms it. */
+function markOrderPaidOnline(d: Db, o: ServerOrder, how: string, gatewayRef: string, amount: number) {
+  if (o.payment_status !== "DUE") return; // settle once
+  Object.assign(o, { payment_status: "VERIFIED", payment_ref: gatewayRef, paid_at: stamp() });
+  // nothing left to collect at the door
+  const j = (d.jobs ?? []).find((x) => x.type === "ORDER" && x.source_id === o.ref);
+  if (j && !j.paid_at) { Object.assign(j, { due: 0, payment: "PAID", paid_at: o.paid_at }); jobAudit("gateway", j, `paid online by the customer · ${how}`, gatewayRef); }
+  orderLog(d, o.ref, `paid online by the customer · ${how} ₹${amount / 100}`, "gateway", gatewayRef);
+  audit("gateway", "order", o.ref, `paid online · ${how}`, null, { amount, ref: gatewayRef });
+  notify(d, o.customer.mobile, o.ref, `We received your payment of ₹${amount / 100} for order ${o.ref}. Thank you!`, { kind: "CONFIRMED", title: "Payment received", key: `paid:${o.ref}` });
+}
+
 function settleQr(d: Db, payreqId: string, status: "PAID" | "FAILED", gatewayRef: string) {
   const r = d.payreqs?.[payreqId];
   if (!r) throw new ApiError(404, "Payment request not found");
+  if (r.order_ref) {
+    // a payment the customer started from their order page or the shop's link
+    if (r.status === "PAID") return null;
+    Object.assign(r, { status, gateway_ref: gatewayRef });
+    const o = d.orders?.find((x) => x.ref === r.order_ref);
+    if (o && status === "PAID") markOrderPaidOnline(d, o, "UPI", gatewayRef, r.amount);
+    return null;
+  }
   const j = (d.jobs ?? []).find((x) => x.id === r.job_id);
   if (!j || j.qr?.id !== payreqId) throw new ApiError(409, "This payment request is no longer active.");
   if (r.status === "PAID") return j; // webhooks can repeat: settle once
@@ -792,6 +966,20 @@ function settleQr(d: Db, payreqId: string, status: "PAID" | "FAILED", gatewayRef
     }
   } else jobAudit("gateway", j, "QR payment failed", gatewayRef);
   return j;
+}
+
+/** A random, unguessable token (share links). */
+function rand() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), (x) => x.toString(16).padStart(2, "0")).join(""); }
+
+/** Plans that have finished (all deliveries made, or a cancelled plan past its end date) earn their commission. */
+function refreshPlanCommissions(d: Db) {
+  const today = istDate();
+  for (const c of (d.commissions ?? []).filter((x) => x.kind === "PLAN" && x.status === "PENDING")) {
+    const s = d.subs?.find((x) => x.id === c.source_id);
+    const o = s && d.orders?.find((x) => x.ref === s.order_ref);
+    if (o && (o.status === "rejected" || o.status === "cancelled")) reverseCommissions(d, (x) => x.id === c.id, `order ${o.status}`);
+    else if (s && viewSub(s, today).status === "COMPLETED") earnCommissions(d, (x) => x.id === c.id);
+  }
 }
 
 /** Manual assignment by the admin. An empty partner id takes the delivery back. */
@@ -819,9 +1007,11 @@ function assignJob(d: Db, j: Job, partnerId: string, by: string) {
 
 /** Orders a guest looked up on this device: order ID → the mobile number they proved it with. */
 function guestTracked(raw: unknown) {
-  const list = Array.isArray(raw) ? (raw as { ref?: unknown; mobile?: unknown }[]) : [];
-  return new Map(list.slice(0, 50).map((t) => [String(t.ref ?? ""), normaliseMobile(String(t.mobile ?? ""))]));
+  const list = Array.isArray(raw) ? (raw as { ref?: unknown; mobile?: unknown; token?: unknown }[]) : [];
+  return new Map(list.slice(0, 50).filter((t) => t.mobile).map((t) => [String(t.ref ?? ""), normaliseMobile(String(t.mobile ?? ""))]));
 }
+/** Share-link tokens a guest has opened on this device. */
+const trackedTokens = (raw: unknown) => new Set((Array.isArray(raw) ? (raw as { token?: unknown }[]) : []).map((t) => String(t.token ?? "")).filter(Boolean));
 
 /** What a customer sees for one order: the five-step timeline, payment and the assigned partner. */
 function customerOrderView(d: Db, o: ServerOrder) {
@@ -832,7 +1022,7 @@ function customerOrderView(d: Db, o: ServerOrder) {
     ref: o.ref, status: o.status, created_at: o.created_at, payment: o.payment, payment_status: o.payment_status ?? (o.payment === "cod" ? "DUE" : "ONLINE"),
     items: o.items, subtotal: o.subtotal, discount: o.discount, delivery_fee: o.delivery_fee, total: o.total,
     delivery_date: j?.date ?? o.delivery_date ?? null, delivery_slot: o.delivery_slot ?? null, reject_reason: o.reject_reason ?? null,
-    history: (o.history ?? []).filter((h) => !h.action.startsWith("delivery OTP")).map((h) => ({ at: h.at, action: h.action })),
+    history: (o.history ?? []).filter((h) => !h.action.startsWith("delivery OTP") && !h.action.startsWith("promo code")).map((h) => ({ at: h.at, action: h.action })),
     steps: {
       placed: o.created_at, confirmed: o.confirmed_at ?? null, assigned: j?.assignments?.[0]?.at ?? j?.assigned_at ?? null,
       picked: j?.picked_at ?? null, paid: o.payment === "cod" ? paidAt ?? null : null, otp: j?.otp_verified_at ?? null, delivered: j?.delivered_at ?? null,
@@ -844,6 +1034,9 @@ function customerOrderView(d: Db, o: ServerOrder) {
       ? [...(d.outbox ?? [])].reverse().find((m) => m.job_id === j.id && m.otp)?.otp ?? null : null,
     assigned_at: j?.assignments?.find((a) => !a.until)?.at ?? j?.assigned_at ?? null,
     delivery_status: j ? ({ READY: "Waiting for a partner", ASSIGNED: "Partner assigned", PICKED: "Out for delivery", OUT: "Out for delivery", DELIVERED: "Delivered", FAILED: "Not delivered", CANCELLED: "Cancelled" } as const)[j.status] : null,
+    // the promoter's code is never shown to customers: only the amount saved
+    promo_code: null as string | null, promo_discount: o.promo_discount ?? 0,
+    pay_online_due: o.payment_status === "DUE" && !["rejected", "cancelled", "delivered"].includes(o.status) ? o.total : null,
     online_paid: o.payment !== "cod" ? { at: o.created_at, verified_at: o.payment_status === "VERIFIED" ? o.confirmed_at ?? null : null } : null,
     otp_status: j?.otp_status ?? null,
   };
@@ -875,7 +1068,14 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
       const mobile = sessionCustomer(d, customerToken)?.mobile;
       const refs = new Set((b.refs as string[]) ?? []);
       const tracked = guestTracked(b.tracked);
-      return (d.orders ?? []).filter((o) => refs.has(o.ref) || (mobile && o.customer.mobile === mobile) || tracked.get(o.ref) === o.customer.mobile).map((o) => customerOrderView(d, o));
+      const tokens = trackedTokens(b.tracked);
+      return (d.orders ?? []).filter((o) => refs.has(o.ref) || (mobile && o.customer.mobile === mobile) || tracked.get(o.ref) === o.customer.mobile || (!!o.share_token && tokens.has(o.share_token))).map((o) => customerOrderView(d, o));
+    }
+    case "POST /orders/by-link": {
+      // the tracking link the shop shares: the private token alone opens that one order
+      const o = (d.orders ?? []).find((x) => !!x.share_token && x.share_token === String(b.token ?? ""));
+      if (!o) throw new ApiError(404, "This order link is not valid. Please check the link or call us.");
+      return customerOrderView(d, o);
     }
     case "POST /orders/lookup": {
       // guest tracking from any device: the order ID alone is not enough, the order's mobile number must match
@@ -885,12 +1085,44 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
       if (!o) throw new ApiError(404, "We couldn't find an order with that ID and mobile number.");
       return customerOrderView(d, o);
     }
+    case "POST /orders/pay-start":
+    case "POST /orders/pay-status":
+    case "POST /orders/pay-razorpay": {
+      // only the order's own customer: signed in, this device's order, or opened from the shop's link
+      const mobile = sessionCustomer(d, customerToken)?.mobile;
+      const refs = new Set((b.refs as string[]) ?? []);
+      const tracked = guestTracked(b.tracked);
+      const tokens = trackedTokens(b.tracked);
+      const o = (d.orders ?? []).find((x) => x.ref === b.ref && (refs.has(x.ref) || (mobile && x.customer.mobile === mobile) || tracked.get(x.ref) === x.customer.mobile || (!!x.share_token && tokens.has(x.share_token))));
+      if (!o) throw new ApiError(404, "Order not found.");
+      if (resource === "pay-status") {
+        const r = d.payreqs?.[String(b.id ?? "")];
+        return { status: r?.order_ref === o.ref ? r.status : null, order: customerOrderView(d, o) };
+      }
+      if (o.payment_status !== "DUE") throw new ApiError(409, "This order is already paid.");
+      if (o.status === "rejected" || o.status === "cancelled" || o.status === "delivered") throw new ApiError(409, "This order can't be paid online now.");
+      if (resource === "pay-razorpay") {
+        // Production: verify the Razorpay payment (signature / fetch the payment) on the server before this.
+        const pid = String(b.payment_id ?? "").trim();
+        if (!pid) throw new ApiError(422, "Payment id missing.");
+        markOrderPaidOnline(d, o, "Razorpay", pid, o.total);
+        commit();
+        return { status: "PAID", order: customerOrderView(d, o) };
+      }
+      // reuse an open request; the amount is always the order total, set by the server
+      const open = Object.entries(d.payreqs ?? {}).find(([, r]) => r.order_ref === o.ref && r.status === "WAITING" && r.amount === o.total);
+      const id = open?.[0] ?? uid("pl");
+      if (!open) (d.payreqs ??= {})[id] = { job_id: "", order_ref: o.ref, amount: o.total, status: "WAITING", created_at: stamp() };
+      commit();
+      return { id, amount: o.total, status: "WAITING" };
+    }
     case "POST /orders/otp-resend": {
       // only the customer who owns the order (signed in, or this device's order) can ask for a new OTP
       const mobile = sessionCustomer(d, customerToken)?.mobile;
       const refs = new Set((b.refs as string[]) ?? []);
       const tracked = guestTracked(b.tracked);
-      const o = (d.orders ?? []).find((x) => x.ref === b.ref && (refs.has(x.ref) || (mobile && x.customer.mobile === mobile) || tracked.get(x.ref) === x.customer.mobile));
+      const tokens = trackedTokens(b.tracked);
+      const o = (d.orders ?? []).find((x) => x.ref === b.ref && (refs.has(x.ref) || (mobile && x.customer.mobile === mobile) || tracked.get(x.ref) === x.customer.mobile || (!!x.share_token && tokens.has(x.share_token))));
       const j = o && (d.jobs ?? []).find((x) => x.type === "ORDER" && x.source_id === o.ref);
       if (!o || !j || !(j.status === "PICKED" || j.status === "OUT")) throw new ApiError(409, "An OTP is issued once your order is out for delivery.");
       issueOtp(d, j, `customer:${o.customer.mobile}`);
@@ -928,11 +1160,100 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
     }
 
     /* ---------- delivery partner ---------- */
+    /* ---------- promo codes and promoters ---------- */
+    case "POST /promo/check": {
+      // is this code valid? (shop coupons and promoters' codes)
+      const code = normaliseCode(b.code);
+      const coupon = COUPONS[code];
+      if (coupon) return { valid: true, code, kind: "coupon", label: coupon.label, type: coupon.type, value: coupon.value };
+      const p = promoterByCode(d, code);
+      if (p) return { valid: true, code, kind: "promoter", label: `${PROMO_DISCOUNT_PCT}% off product prices`, type: "percent", value: PROMO_DISCOUNT_PCT };
+      return { valid: false, code };
+    }
+    case "POST /promo/stats": {
+      // a promoter checks their own numbers with their mobile + code (no account); counts and commission only, never customer details
+      const mobile = String(b.mobile ?? "").replace(/\D/g, "").slice(-10);
+      const tries = (promoTries[mobile] ??= []).filter((t) => Date.now() - t < 15 * 60_000);
+      promoTries[mobile] = tries;
+      if (tries.length >= 5) throw new ApiError(429, "Too many tries. Wait 15 minutes and try again.");
+      const p = (d.promoters ?? []).find((x) => x.active && x.mobile === mobile && x.code === normaliseCode(b.code));
+      if (!p) { tries.push(Date.now()); throw new ApiError(401, "This number and promo code don't match. Check both and try again."); }
+      refreshPlanCommissions(d);
+      const mine = (d.commissions ?? []).filter((c) => c.promoter_id === p.id);
+      const t = commissionTotals(mine);
+      const count = (k: string) => new Set(mine.filter((c) => c.kind === k && c.status !== "REVERSED").map((c) => c.ref)).size;
+      return {
+        name: p.name, code: p.code, brand: p.brand, channel: p.channel,
+        counts: {
+          regular: count("REGULAR"), plan: count("PLAN"), event: count("EVENT"),
+          total: new Set(mine.filter((c) => c.status !== "REVERSED").map((c) => c.ref)).size,
+          completed: new Set(mine.filter((c) => c.status === "EARNED" || c.status === "PAID").map((c) => c.ref)).size,
+          cancelled: new Set(mine.filter((c) => c.status === "REVERSED").map((c) => c.ref)).size,
+        },
+        // money is shown only once an order is delivered and its payment confirmed (earned or paid out)
+        commission: { earned: t.earned, paid: t.paid },
+        in_progress: new Set(mine.filter((c) => c.status === "PENDING").map((c) => c.ref)).size,
+        recent: [...mine].reverse().slice(0, 30).map((c) => ({ date: c.created_at, kind: c.kind, ref: c.ref, status: c.status, amount: c.status === "EARNED" || c.status === "PAID" ? c.amount : null })),
+      };
+    }
+    case "GET /admin/promoters": {
+      requireAdmin(adminToken);
+      refreshPlanCommissions(d);
+      return (d.promoters ?? []).map((p) => ({ ...publicPromoter(p), totals: commissionTotals((d.commissions ?? []).filter((c) => c.promoter_id === p.id)) }));
+    }
+    case "POST /admin/promoters":
+    case "PUT /admin/promoters/:id": {
+      const by = requireAdmin(adminToken);
+      return upsertPromoter(d, b as never, id).then((p) => {
+        audit(by, "promoter", p.id, id ? "update" : "create", null, { name: p.name, code: p.code, active: p.active });
+        commit();
+        return publicPromoter(p);
+      }, (e) => { throw e instanceof PromoError ? new ApiError(e.status, e.message, e.fields) : e; });
+    }
+    case "GET /admin/commissions": {
+      requireAdmin(adminToken);
+      refreshPlanCommissions(d);
+      commit();
+      const names = Object.fromEntries((d.promoters ?? []).map((p) => [p.id, p.name]));
+      const brands = Object.fromEntries((d.promoters ?? []).map((p) => [p.id, [p.brand, p.channel].filter(Boolean).join(" · ")]));
+      return (d.commissions ?? []).slice().reverse().map((c) => ({ ...c, promoter_name: names[c.promoter_id] ?? "", promoter_brand: brands[c.promoter_id] ?? "" }));
+    }
+    case "POST /admin/commissions/pay": {
+      // pay out earned commissions (by id); pending or reversed ones can't be paid
+      const by = requireAdmin(adminToken);
+      const ids = new Set((b.ids as string[]) ?? []);
+      let n = 0;
+      for (const c of d.commissions ?? []) if (ids.has(c.id) && c.status === "EARNED") { Object.assign(c, { status: "PAID", paid_at: stamp() }); n++; }
+      audit(by, "commission", [...ids].join(","), `paid ${n}`, null, null);
+      commit();
+      return { paid: n };
+    }
+
     case "POST /partner/login":
-      return partnerLogin(d, String(b.mobile ?? ""), String(b.password ?? "")).then((r) => { commit(); return r; }, (e) => { throw e instanceof OpsError ? new ApiError(e.status, e.message) : e; });
+    {
+      const lockKey = `partner:${String(b.mobile ?? "").replace(/\D/g, "").slice(-10)}`;
+      loginLocked(lockKey);
+      return partnerLogin(d, String(b.mobile ?? ""), String(b.password ?? "")).then((r) => { loginOk(lockKey); commit(); return r; },
+        (e) => { if (e instanceof OpsError && e.status === 401) loginFailed(lockKey); throw e instanceof OpsError ? new ApiError(e.status, e.message) : e; });
+    }
     case "GET /partner/me": {
       const p = requirePartner(d, partnerToken);
       return { partner: publicPartner(p), summary: partnerSummary(d, p.id, today), branch: d.branches.find((x) => x.id === p.branch_id)?.name_en ?? "" };
+    }
+    case "POST /partner/password": {
+      const p = requirePartner(d, partnerToken);
+      const cur = String(b.current ?? ""), next = String(b.next ?? "");
+      if (next.length < 6) throw new ApiError(422, "Please fix the highlighted fields", { next: "At least 6 characters" });
+      return bcrypt.compare(cur, p.password_hash).then((ok) => {
+        if (!ok) throw new ApiError(422, "Please fix the highlighted fields", { current: "Current password is incorrect" });
+        p.password_hash = bcrypt.hashSync(next, 8);
+        p.session_version += 1;
+        const sess = d.partnerSessions?.[partnerToken!];
+        if (sess) sess.sv = p.session_version;
+        audit(`partner:${p.mobile}`, "partner", p.mobile, "changed password", null, null);
+        commit();
+        return { ok: true };
+      });
     }
     case "GET /partner/jobs": {
       const p = requirePartner(d, partnerToken);
@@ -953,7 +1274,8 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
             const todayJob = jobs.find((j) => j.type === "SUBSCRIPTION" && j.source_id === s.id && j.date === today);
             return {
               id: s.id, ref: s.ref, status: s.status, customer: s.customer.name, mobile: s.customer.mobile, area: s.area,
-              address: s.address ? [s.address.line1, s.address.line2, s.address.area].filter(Boolean).join(", ") : "",
+              // the same location details a delivery card has, so the partner can call, navigate and see the pin
+              address: fullAddress(s.address), landmark: landmarkOf(s.address), lat: s.address?.lat ?? null, lng: s.address?.lng ?? null, notes: s.address?.instructions ?? "",
               item: `${s.product_name} ${s.size} × ${s.qty}`, start_date: s.start_date, end_date: s.end_date,
               delivered: s.delivered, remaining: s.remaining, next_date: next, today: todayJob?.status ?? null,
             };
@@ -965,6 +1287,7 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
     case "POST /partner/pickup":
     case "POST /partner/qr":
     case "POST /partner/qr-status":
+    case "POST /partner/cash":
     case "POST /partner/deliver":
     case "POST /partner/skip":
     case "POST /partner/otp-resend": {
@@ -994,6 +1317,20 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
       if (resource === "qr-status") {
         if (!j.qr) throw new ApiError(404, "No payment request yet.");
       }
+      if (resource === "cash") {
+        // cash at the door: the partner confirms the exact amount due; it is counted in their cash to hand over
+        if (!out) throw new ApiError(409, "Confirm pickup first.");
+        if (!(j.due > 0) || j.paid_at) throw new ApiError(409, "This order is already paid.");
+        if (Math.round(Number(b.amount)) !== j.due) throw new ApiError(422, `Collect exactly ₹${j.due / 100}.`, { amount: "Must match the amount due" });
+        j.collected = { method: "CASH", amount: j.due };
+        j.paid_at = stamp();
+        jobAudit(by, j, `cash received ₹${j.due / 100}`);
+        if (j.type === "ORDER") {
+          const o = d.orders?.find((x) => x.ref === j.source_id);
+          if (o) { o.payment_status = "COLLECTED"; o.paid_at = j.paid_at; }
+          orderLog(d, j.source_id, `cash received ₹${j.due / 100} by ${p.name}`, by);
+        }
+      }
       if (resource === "otp-resend") {
         if (!out || j.type === "EVENT") throw new ApiError(409, "An OTP is issued once the order is picked up.");
         issueOtp(d, j, by);
@@ -1002,8 +1339,9 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
         // plan day only: the customer wasn't available or asked to skip; the day isn't counted, so the plan runs a day longer
         if (j.type !== "SUBSCRIPTION") throw new ApiError(403, "Only a subscription day can be skipped.");
         if (j.status === "DELIVERED" || j.status === "FAILED") throw new ApiError(409, "This day is already recorded.");
-        const reason = String(b.reason ?? "").trim();
-        if (!reason) throw new ApiError(422, "Choose a reason.", { reason: "Required" });
+        // a partner skips one day, today's, and only when the customer isn't available; the plan itself is never skipped
+        if (j.date !== istDate()) throw new ApiError(409, "Only today's delivery can be skipped.");
+        const reason = "Customer not available";
         Object.assign(j, { status: "FAILED", failed_at: stamp(), fail_reason: reason });
         jobAudit(by, j, "plan day skipped", reason);
       }
@@ -1043,9 +1381,9 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
     case "POST /gateway/qr-webhook": {
       // Stands in for the gateway's signed webhook (e.g. Razorpay qr_code.credited). A real server verifies the
       // webhook signature here; the partner app can never call this.
-      const j = settleQr(d, String(b.payreq ?? ""), b.status === "FAILED" ? "FAILED" : "PAID", String(b.gateway_ref ?? uid("pay")));
+      settleQr(d, String(b.payreq ?? ""), b.status === "FAILED" ? "FAILED" : "PAID", String(b.gateway_ref ?? uid("pay")));
       commit();
-      return { ok: true, status: j.qr?.status };
+      return { ok: true, status: d.payreqs?.[String(b.payreq ?? "")]?.status };
     }
 
     /* ---------- admin ---------- */
@@ -1085,6 +1423,7 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
         const reason = String(b.reason ?? "").trim();
         if (!reason) throw new ApiError(422, "Give a reason for rejecting the order.", { reason: "Required" });
         Object.assign(o, { status: "rejected", rejected_at: stamp(), reject_reason: reason });
+        reverseCommissions(d, (c) => c.ref === o.ref, "order rejected");
         // a rejected plan order never starts: stop its plan before the first day
         for (const s of (d.subs ?? []).filter((x) => x.order_ref === o.ref && !x.cancelled_at)) Object.assign(s, { cancelled_at: stamp(), cancel_end_date: addDays(s.start_date, -1) });
         orderLog(d, o.ref, "rejected", by, reason);
@@ -1096,6 +1435,7 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
         if (j && j.status !== "READY" && j.status !== "ASSIGNED") throw new ApiError(409, j.status === "CANCELLED" ? "Already cancelled." : "The partner has already picked up this order.");
         o.status = "cancelled";
         orderLog(d, o.ref, "cancelled", by);
+        reverseCommissions(d, (c) => c.ref === o.ref && c.kind === "REGULAR", "order cancelled");
         if (j) {
           // the delivery record is kept for history, closed as cancelled
           const open = j.assignments?.find((a) => !a.until);
@@ -1107,6 +1447,55 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
       } else throw new ApiError(422, "Unknown action");
       commit();
       return o;
+    }
+    case "POST /admin/orders": {
+      // The shop places an order for a customer (phone or walk-in). Priced by the same rules as the website,
+      // created already confirmed, optionally assigned, and shared with the customer by a private tracking link.
+      const by = requireAdmin(adminToken);
+      const c = (b.customer ?? {}) as { name?: string; mobile?: string };
+      const a = (b.address ?? {}) as Partial<AccountAddress> & { location_text?: string };
+      const name = String(c.name ?? "").trim();
+      const mobile = normaliseMobile(String(c.mobile ?? ""));
+      const f: Record<string, string> = {};
+      if (!name) f.name = "Customer name is required";
+      if (!isValidMobile(mobile)) f.mobile = "Enter a valid 10-digit mobile number";
+      if (a.pincode && !/^\d{6}$/.test(String(a.pincode).trim())) f.pincode = "6-digit pincode, or leave it empty";
+      if (a.lat == null || a.lng == null) f.location = "Set the delivery location on the map";
+      const lines = ((b.lines as { productId: string; qty: number }[]) ?? []).filter((l) => l.qty > 0);
+      if (!lines.length) f.lines = "Add at least one product";
+      if (Object.keys(f).length) throw new ApiError(422, "Please fix the highlighted fields", f);
+      const paid = b.payment === "paid";
+      const req: CreateOrderRequest = {
+        lines: lines.map((l) => ({ productId: l.productId, qty: Math.round(l.qty), plan: false })),
+        addressId: "", payment: paid ? "upi" : "cod", customer: { name, phone: mobile, email: "" },
+        // b.payment: "cash" or "qr" (pay on delivery) or "paid"
+        paymentRef: paid ? String(b.payment_ref ?? "").trim() || undefined : undefined,
+      };
+      const address: AccountAddress = {
+        id: uid("addr"), label: "Delivery", name, phone: mobile,
+        line1: String(a.line1 ?? "").trim() || String(a.location_text ?? "").trim() || "Pinned location", line2: String(a.line2 ?? "").trim(),
+        area: String(a.area ?? "").trim() || String(a.landmark ?? "").trim() || "—", pincode: String(a.pincode ?? "").trim(), district: String(a.district ?? d.settings.district_restriction).trim(),
+        lat: Number(a.lat), lng: Number(a.lng), landmark: String(a.landmark ?? "").trim(), instructions: String(a.instructions ?? "").trim(),
+      };
+      return priceOrder(req, { lat: address.lat!, lng: address.lng!, district: address.district }).then((pricing) => {
+        pricing.account = upsertCustomerForOrder(d, mobile, name, address, pricing.order_ref);
+        recordOrder(d, req, pricing, mobile, name, "", address);
+        const o = d.orders!.find((x) => x.ref === pricing.order_ref)!;
+        Object.assign(o, {
+          created_by: by, share_token: rand(),
+          status: "confirmed", confirmed_at: stamp(), payment_status: paid ? "VERIFIED" : "DUE",
+        });
+        const atDoor = b.payment === "qr" ? "UPI QR" : "cash";
+        o.history = [{ at: stamp(), action: `order created by the shop · ${paid ? "paid (verified by admin)" : `pay on delivery by ${atDoor}`}`, by }];
+        audit(by, "order", o.ref, "create for customer", null, { mobile, total: o.total });
+        createOrderJob(d, o);
+        const job = d.jobs?.find((x) => x.type === "ORDER" && x.source_id === o.ref);
+        if (job && !paid) job.notes = [`Customer will pay by ${atDoor}`, job.notes].filter(Boolean).join(" · ");
+        if (job && b.partner_id) assignJob(d, job, String(b.partner_id), by);
+        notify(d, mobile, o.ref, `Sri Sastha Paruthipaal has placed order ${o.ref} for you (₹${o.total / 100}). Track it here: {link}`, { kind: "CONFIRMED", title: "Your order is placed" });
+        commit();
+        return { order: o, share_token: o.share_token };
+      }, (e) => { throw e instanceof ApiError ? e : new ApiError(422, (e as Error).message); });
     }
     case "PUT /admin/jobs/:id": {
       // assign a delivery (order, plan day or event) to a partner, or take it back

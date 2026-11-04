@@ -42,7 +42,12 @@ export const api = {
   createOrder: (o: CreateOrderRequest) => request<CreatedOrderPricing>("POST", "/api/orders/create", o),
 
   requestEvent: (r: Omit<EventRequest, "id" | "ref" | "created_at" | "base_amount" | "status">) => request<EventRequest>("POST", "/api/events/request", r),
-  adminLogin: (phone: string) => request<{ token: string; phone: string }>("POST", "/api/auth/admin", { phone }),
+  checkPromo: (code: string) => request<{ valid: boolean; code: string; kind?: "coupon" | "promoter"; label?: string; type?: "flat" | "percent"; value?: number }>("POST", "/api/promo/check", { code }),
+  adminLogin: (mobile: string, password: string) => request<{ token: string; phone: string; role: string; sections: string[]; name: string; first: boolean }>("POST", "/api/auth/admin", { mobile, password }),
+  adminMe: () => request<{ mobile: string; name: string; role: "SUPER_ADMIN" | "MANAGER"; sections: string[] }>("GET", "/api/admin/me"),
+  staff: () => request<{ owners: string[]; staff: { mobile: string; name: string; role: "SUPER_ADMIN" | "MANAGER"; sections: string[]; active: boolean; created_at: string; has_password: boolean }[] }>("GET", "/api/admin/staff"),
+  saveStaff: (s: { mobile: string; name: string; role: "SUPER_ADMIN" | "MANAGER"; sections: string[]; active: boolean; password?: string }, id?: string) =>
+    request(id ? "PUT" : "POST", id ? `/api/admin/staff/${id}` : "/api/admin/staff", s),
   admin: {
     branches: () => request<AdminBranch[]>("GET", "/api/admin/branches"),
     saveBranch: (b: Branch & { holidays: BranchHoliday[] }, isNew: boolean) =>
@@ -68,6 +73,8 @@ export const api = {
 // Short TTL so admin changes reach the site within 60 s even without a signal; saves also bust the cache at once.
 const TTL = 60_000;
 const cache = new Map<string, { at: number; data: unknown }>();
+/** Forget cached answers, e.g. when a different person signs in. */
+export const clearApiCache = () => cache.clear();
 const inflight = new Map<string, Promise<unknown>>();
 if (typeof window !== "undefined") window.addEventListener("ssp-db-changed", () => cache.clear());
 

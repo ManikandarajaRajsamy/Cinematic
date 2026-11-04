@@ -1,71 +1,130 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { BrandLogo } from "@/components/BrandLogo";
-import { RotateCcw, LogOut, ShieldCheck } from "lucide-react";
-import { useStore } from "@/store/store";
-import { api, adminSession, useApi } from "@/api/client";
-import { AdminBranches } from "./admin/AdminBranches";
-import { AdminProducts } from "./admin/AdminProducts";
-import { AdminDelivery, AdminAudit } from "./admin/AdminDelivery";
+import { ShieldCheck, Lock, Phone, ArrowRight, ClipboardList, CalendarCheck, BarChart3, Eye, EyeOff } from "lucide-react";
+import { api, adminSession, ApiError, clearApiCache } from "@/api/client";
 import { errorsFrom } from "./admin/shared";
-import { AdminEvents } from "./admin/AdminEvents";
-import { AdminCustomers } from "./admin/AdminCustomers";
-import { AdminDashboard } from "./admin/AdminDashboard";
-import { AdminDeliveries, AdminCash, AdminPartners } from "./admin/AdminDeliveries";
-import { AdminOrders } from "./admin/AdminOrders";
-import { AdminSubscriptions } from "./admin/AdminSubscriptions";
-import { AdminUiStyles, BranchFilterCtx } from "./admin/ui";
 
 
 // Super Admin workspace. (There is no Store Manager role; delivery partners use /partner.)
-const TABS = ["dashboard", "deliveries", "orders", "subscriptions", "events", "cash", "partners", "customers", "products", "branches", "delivery", "audit"] as const;
-const TAB_LABEL: Record<(typeof TABS)[number], string> = {
-  dashboard: "Dashboard", deliveries: "Deliveries today", orders: "Orders", subscriptions: "Subscriptions", events: "Events", cash: "Cash",
-  partners: "Delivery partners", customers: "Customers", products: "Products", branches: "Branches", delivery: "Delivery fees", audit: "Audit",
-};
-type Tab = (typeof TABS)[number];
 
 
-/** Super-admin sign-in. The mock server checks the number on every admin call (not real security). */
+/** Staff sign-in (admins and managers): mobile + password, checked by the server. */
 function AdminGate({ onIn }: { onIn: () => void }) {
   const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
   const [err, setErr] = useState("");
+  const [setup, setSetup] = useState(false);
+  const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    try { const r = await api.adminLogin(phone); adminSession.set(r.token); onIn(); }
-    catch (x) { setErr(errorsFrom(x).message); }
+    if (phone.length !== 10) { setErr("Enter your 10-digit mobile number."); return; }
+    if (!password) { setErr("Enter your password."); return; }
+    setBusy(true); setErr("");
+    try { const r = await api.adminLogin(phone, password); adminSession.set(r.token); clearApiCache(); onIn(); }
+    catch (x) {
+      const e2 = x as ApiError;
+      if (e2?.code === "OWNER_SETUP") setSetup(true);
+      setErr(errorsFrom(x).message);
+    }
+    finally { setBusy(false); }
   };
   return (
-    <section className="section" style={{ paddingTop: "var(--sp-16)", minHeight: "80vh" }}>
-      <form className="container-narrow card admin-form" style={{ maxWidth: 440, padding: 32 }} onSubmit={submit}>
-        <span className="eyebrow"><ShieldCheck size={14} /> Admin</span>
-        <h1 className="title-xl">Sign in</h1>
-        <p style={{ color: "var(--text-dim)", fontSize: "var(--font-sm)" }}>Super admins only. In this local demo the number is checked without an OTP.</p>
-        <div className="field">
-          <label className="label" htmlFor="adm-phone">Mobile number</label>
-          <input id="adm-phone" className="input" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="10-digit number" />
-          {err && <span className="field-error">{err}</span>}
+    <section className="ag">
+      <div className="ag-brand">
+        <img src="/brand/logo.webp" alt="Sri Sastha Paruthipaal" width={96} />
+        <span className="ag-kicker"><ShieldCheck size={14} /> Admin workspace</span>
+        <h1>Run the shop from one place.</h1>
+        <ul>
+          <li><ClipboardList size={16} /> Confirm orders and assign delivery partners</li>
+          <li><CalendarCheck size={16} /> Manage daily subscriptions and event orders</li>
+          <li><BarChart3 size={16} /> Products, prices, payments and reports</li>
+        </ul>
+      </div>
+      <form className="ag-card" onSubmit={submit} noValidate>
+        <div className="ag-head">
+          <span className="ag-icon"><Lock size={20} /></span>
+          <div><h2>Staff sign-in</h2><p>Admins and managers</p></div>
         </div>
-        <button className="btn btn-primary btn-block" type="submit">Continue</button>
+        <label className="label" htmlFor="adm-phone">Mobile number</label>
+        <div className={`ag-field ${err ? "bad" : ""}`}>
+          <Phone size={18} /><span>+91</span>
+          <input id="adm-phone" inputMode="numeric" autoComplete="tel-national" maxLength={10} placeholder="10-digit number" autoFocus
+            value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))} aria-invalid={!!err} aria-describedby={err ? "adm-err" : undefined} />
+        </div>
+        <label className="label" htmlFor="adm-pass">{setup ? "Choose your password" : "Password"}</label>
+        <div className="ag-field">
+          <Lock size={18} />
+          <input id="adm-pass" type={show ? "text" : "password"} autoComplete={setup ? "new-password" : "current-password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={setup ? "At least 6 characters" : ""} />
+          <button type="button" className="ag-eye" onClick={() => setShow((v) => !v)} aria-label={show ? "Hide password" : "Show password"}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+        </div>
+        {err && <span id="adm-err" className="field-error" role="alert">{err}</span>}
+        <button className="btn btn-primary btn-block btn-lg" type="submit" disabled={busy}>{busy ? "Signing in…" : <>Continue <ArrowRight size={16} /></>}</button>
+        <p className="ag-note"><ShieldCheck size={13} /> Forgot your password? Ask the super admin to set a new one in Team & access.</p>
       </form>
+      <style>{`
+        /* the sign-in uses the admin theme (indigo, Montserrat) like the workspace behind it */
+        .ag { --green: #5B5FEF; --green-deep: #3D40C9; --gold: #FFB547; --accent-gold-glow: rgba(91, 95, 239, 0.12);
+          font-family: 'Montserrat', 'DM Sans', system-ui, sans-serif;
+          min-height: calc(100vh - 64px); min-height: calc(100svh - 64px); display: grid; grid-template-columns: 1fr 1fr; background: #F4F5F7; }
+        .ag :is(h1, h2) { font-family: 'Montserrat', 'DM Sans', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.02em; }
+        .ag .btn { border-radius: 10px; text-transform: none; letter-spacing: 0; font-size: 14px; }
+        .ag .label { text-transform: none; letter-spacing: 0.02em; font-size: 12.5px; }
+        .ag-brand { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; gap: var(--sp-5); padding: clamp(32px, 6vw, 80px); color: var(--cream);
+          background: radial-gradient(120% 80% at 0% 0%, rgba(255, 122, 24, 0.18), transparent 55%), linear-gradient(160deg, var(--green) 0%, var(--green-deep) 100%); }
+        .ag-brand img { width: 96px; height: auto; filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.3)); }
+        .ag-kicker { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); }
+        .ag-brand h1 { color: #fff; font-size: clamp(2rem, 3.6vw, 3rem); line-height: 1.08; max-width: 14ch; }
+        .ag-brand ul { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+        .ag-brand li { display: flex; align-items: center; gap: 10px; font-size: var(--font-sm); color: rgba(250, 247, 240, 0.88); }
+        .ag-brand li svg { color: var(--gold); flex-shrink: 0; }
+        .ag-card { position: relative; z-index: 2; align-self: center; justify-self: center; width: min(420px, calc(100% - 32px)); margin: 32px 0; padding: 32px; border-radius: 22px; background: #fff; box-shadow: 0 30px 70px rgba(41, 41, 35, 0.14); display: flex; flex-direction: column; gap: 12px; }
+        .ag-head { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+        .ag-icon { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-gold-glow); color: var(--green); }
+        .ag-head h2 { font-size: 1.45rem; line-height: 1.15; }
+        .ag-head p { font-size: var(--font-sm); color: var(--text-dim); }
+        .ag-field { display: flex; align-items: center; gap: 10px; min-height: 54px; padding: 0 16px; border: 1.5px solid var(--border-strong); border-radius: 14px; transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+        .ag-field:focus-within { border-color: var(--green); box-shadow: 0 0 0 4px var(--accent-gold-glow); }
+        .ag-field.bad { border-color: var(--error); }
+        .ag-field svg { color: var(--text-dim); flex-shrink: 0; }
+        .ag-field span { font-weight: 600; color: var(--text-muted); }
+        .ag-field input { flex: 1; min-width: 0; height: 52px; font-size: 17px; letter-spacing: 0.04em; }
+        .ag-card .btn { margin-top: 8px; border-radius: 14px; }
+        .ag-eye { padding: 6px; color: var(--text-dim); flex-shrink: 0; }
+        .ag-note { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+        .ag-note svg { flex-shrink: 0; margin-top: 1px; }
+        @media (max-width: 860px) {
+          .ag { grid-template-columns: 1fr; align-content: start; }
+          .ag-brand { padding: 28px 20px 76px; gap: var(--sp-3); align-items: flex-start; }
+          .ag-brand img { width: 72px; }
+          .ag-brand h1 { font-size: 1.55rem; }
+          .ag-brand ul { display: none; }
+          .ag-card { margin: -52px auto 24px; padding: 24px 20px; width: calc(100% - 32px); }
+        }
+      `}</style>
     </section>
   );
 }
+
+// the workspace (every admin screen) is a separate download, fetched only once signed in
+const Dashboard = lazy(() => import("./admin/Workspace").then((m) => ({ default: m.Dashboard })));
 
 export function AdminPage() {
   const [signedIn, setSignedIn] = useState(() => !!adminSession.get());
   // the admin workspace stands alone: no customer header, footer or links into the shop
   return (
     <div className="adm-shell">
-      <header className="adm-bar">
+      {!signedIn && <header className="adm-bar">
         <div className="container adm-bar-in">
           <BrandLogo size={44} />
           <span className="adm-bar-tag"><ShieldCheck size={14} /> Admin</span>
         </div>
-      </header>
-      {signedIn ? <Dashboard onOut={() => { adminSession.clear(); setSignedIn(false); }} /> : <AdminGate onIn={() => setSignedIn(true)} />}
+      </header>}
+      {signedIn ? <Suspense fallback={<div className="adm-loading" role="status" aria-label="Loading the workspace" />}><Dashboard onOut={() => { adminSession.clear(); clearApiCache(); setSignedIn(false); }} /></Suspense> : <AdminGate onIn={() => setSignedIn(true)} />}
       <style>{`
+        .adm-loading { min-height: 100vh; background: #F4F5F7; }
         .adm-shell { min-height: 100vh; min-height: 100svh; background: var(--bg); }
-        .adm-bar { position: sticky; top: 0; z-index: 50; background: var(--green-deep); color: var(--cream); }
+        .adm-bar { position: sticky; top: 0; z-index: 50; background: #2E3192; color: #fff; font-family: 'Montserrat', 'DM Sans', system-ui, sans-serif; }
         .adm-bar-in { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-4); padding-block: 10px; }
         .adm-bar .brand-l2 { color: var(--gold); }
         .adm-bar-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); }
@@ -74,130 +133,3 @@ export function AdminPage() {
   );
 }
 
-function Dashboard({ onOut }: { onOut: () => void }) {
-  const [tab, setTab] = useState<Tab>("dashboard");
-  const [branch, setBranch] = useState("ALL");
-  const { toast } = useStore();
-  const { data: branchList } = useApi("admin-branches", api.admin.branches);
-  const branches = (branchList ?? []).map((b) => ({ id: b.id, name: b.name_en }));
-  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
-
-  return (
-    <section className="section" style={{ paddingTop: "var(--sp-12)" }}>
-      <div className="container">
-        <div className="admin-head">
-          <div>
-            <span className="eyebrow">Super Admin</span>
-            <h1 className="display-3">Store dashboard</h1>
-            <p style={{ fontSize: "var(--font-sm)", color: "var(--text-dim)", marginTop: 8 }}>
-              Signed in as {adminSession.get()?.replace("admin:", "")}.
-            </p>
-          </div>
-          <div className="admin-actions">
-            <label className="adm-branch">
-              <span className="label">Branch</span>
-              <select className="select" value={branch} onChange={(e) => setBranch(e.target.value)} aria-label="Branch filter">
-                <option value="ALL">All branches</option>
-                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </label>
-            <button className="btn btn-ghost btn-sm" title="Mock data only: remove before going live" onClick={async () => {
-              if (!confirm("Reset branches, products and delivery settings to the seed data?")) return;
-              try { await api.admin.reset(); toast("Reset to seed data", "success"); } catch (e) { toast(errorsFrom(e).message, "error"); }
-            }}><RotateCcw size={14} /> Reset data</button>
-            <button className="btn btn-ghost btn-sm" onClick={onOut}><LogOut size={14} /> Sign out</button>
-          </div>
-        </div>
-
-        <div className="tabs mt-8" role="tablist">
-          {TABS.map((t) => (
-            <button key={t} role="tab" aria-selected={tab === t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
-              {TAB_LABEL[t]}
-            </button>
-          ))}
-        </div>
-
-        <BranchFilterCtx.Provider value={{ branch, setBranch }}>
-        <div className="mt-8 page-enter" key={tab}>
-          {tab === "dashboard" && <AdminDashboard />}
-          {tab === "deliveries" && <AdminDeliveries />}
-          {tab === "cash" && <AdminCash />}
-          {tab === "partners" && <AdminPartners branches={branches} />}
-          {tab === "products" && <AdminProducts />}
-          {tab === "delivery" && <AdminDelivery />}
-          {tab === "audit" && <AdminAudit />}
-          {tab === "events" && <AdminEvents />}
-          {tab === "orders" && <AdminOrders branchName={branchName} />}
-          {tab === "subscriptions" && <AdminSubscriptions branchName={branchName} />}
-          {tab === "customers" && <AdminCustomers />}
-          {tab === "branches" && <AdminBranches />}
-        </div>
-        </BranchFilterCtx.Provider>
-        <AdminUiStyles />
-      </div>
-      <style>{`
-        .adm-branch { display: flex; flex-direction: column; gap: 4px; }
-        .adm-branch .select { min-width: 220px; padding-top: 8px; padding-bottom: 8px; }
-        .admin-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--sp-4); flex-wrap: wrap; }
-        .admin-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-4); }
-        .admin-stat { padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-2); }
-        .admin-stat strong { font-family: var(--font-display); font-size: 1.8rem; font-weight: 400; color: var(--accent-gold-bright); }
-        .admin-controls { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-6); align-items: center; }
-        .admin-search { position: relative; flex: 2 1 240px; }
-        .admin-search svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-dim); }
-        .admin-search .input { padding-left: 40px; }
-        .admin-controls .select { flex: 1 1 180px; width: auto; }
-        .admin-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md, 12px); }
-        .admin-table { width: 100%; border-collapse: collapse; font-size: var(--font-sm); }
-        .admin-table th { text-align: left; padding: var(--sp-3) var(--sp-4); font-size: var(--font-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); font-weight: 600; background: var(--bg-elevated); white-space: nowrap; }
-        .admin-table td { padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--border); vertical-align: middle; }
-        .admin-table tr:hover td { background: var(--bg-glass-light); }
-        .admin-thumb { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; }
-        .admin-variants { display: flex; flex-wrap: wrap; gap: 6px; }
-        .stock-toggle { font-size: var(--font-xs); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); transition: all var(--t-fast); }
-        .stock-toggle.on { border-color: rgba(46, 156, 126,0.45); color: var(--accent-green-bright); }
-        .stock-toggle.off { color: #e08c70; border-color: rgba(176,73,47,0.4); text-decoration: line-through; }
-        .admin-actions { display: flex; gap: var(--sp-2); justify-content: flex-end; }
-        /* partner pickers sit in narrow table cells: keep the names readable */
-        .assign-select { width: auto; min-width: 200px; padding: 8px 36px 8px 12px; font-size: var(--font-sm); }
-        .admin-empty { padding: var(--sp-12); text-align: center; color: var(--text-dim); }
-        .admin-form { padding: var(--sp-6) var(--sp-8) var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-4); }
-        .admin-variant-row { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: var(--sp-2); align-items: center; }
-        .admin-bars { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-5); }
-        .admin-bar { display: grid; grid-template-columns: 140px 1fr 40px; gap: var(--sp-3); align-items: center; font-size: var(--font-sm); }
-        .admin-bar-track { height: 8px; border-radius: 999px; background: var(--bg-elevated); overflow: hidden; }
-        .admin-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent-gold-dim), var(--accent-gold-bright)); border-radius: inherit; transition: width 700ms var(--ease); }
-        .adm-hint { font-size: var(--font-xs); color: var(--text-dim); margin: 0 0 12px; }
-        .adm-grip { white-space: nowrap; color: var(--text-dim); cursor: grab; }
-        .adm-grip svg { display: inline; vertical-align: middle; }
-        .adm-icon { padding: 4px; border-radius: 6px; color: var(--text-muted); }
-        .adm-icon:hover { background: var(--bg-glass-light); color: var(--text); }
-        tr.dragging td { opacity: 0.4; }
-        .adm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-        .adm-chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); font-size: var(--font-sm); }
-        .adm-chip.on { background: var(--accent-gold-glow); border-color: var(--border-bright); color: var(--accent-gold-bright); }
-        .adm-box { padding: 14px; border: 1px dashed var(--border-strong); border-radius: 12px; gap: 10px; }
-        .adm-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .adm-inline .input { flex: 1 1 160px; width: auto; }
-        .adm-preview { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; }
-        .adm-toggles { display: flex; flex-wrap: wrap; gap: 14px 24px; }
-        .adm-toggle { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: var(--font-sm); position: relative; }
-        .adm-toggle input { position: absolute; opacity: 0; pointer-events: none; }
-        .adm-toggle-track { width: 38px; height: 22px; border-radius: 999px; background: var(--ink-600); position: relative; transition: background 200ms; flex-shrink: 0; }
-        .adm-toggle-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--text); transition: transform 200ms; }
-        .adm-toggle input:checked + .adm-toggle-track { background: var(--accent-gold); }
-        .adm-toggle input:checked + .adm-toggle-track::after { transform: translateX(16px); }
-        .adm-toggle input:focus-visible + .adm-toggle-track { outline: 2px solid var(--accent-gold-bright); outline-offset: 2px; }
-        .adm-toggle small { display: block; color: var(--text-dim); font-size: var(--font-xs); }
-        .adm-slab { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
-        .adm-slab-head { font-size: var(--font-xs); color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
-        .adm-preview-list { list-style: none; display: flex; flex-direction: column; }
-        .adm-preview-list li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: var(--font-sm); }
-        .adm-diff { font-size: 12px; white-space: normal; word-break: break-word; color: var(--text-muted); }
-        .admin-two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-6); }
-        @media (max-width: 900px) { .admin-stats { grid-template-columns: repeat(2, 1fr); } .admin-two { grid-template-columns: 1fr; } }
-        @media (max-width: 560px) { .admin-form { padding: var(--sp-5); } .admin-variant-row { grid-template-columns: 1fr 1fr; } .admin-bar { grid-template-columns: 100px 1fr 32px; } }
-      `}</style>
-    </section>
-  );
-}

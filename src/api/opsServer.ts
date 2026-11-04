@@ -1,6 +1,7 @@
 // Operations for the mock backend: server-side orders, daily-plan subscriptions with a delivery calendar,
 // delivery jobs that delivery partners pick themselves, partner accounts, cash handover and visitor counts.
 // Pure data + rules; mockServer.ts owns storage and routing.
+import { slotStartHour, REGULAR_HOURS } from "@/data/slots";
 import bcrypt from "bcryptjs";
 import type { StoredAddress } from "./authServer";
 
@@ -34,6 +35,10 @@ export interface ServerOrder {
   confirmed_at?: string; rejected_at?: string; reject_reason?: string;
   /** gateway reference of the online payment at checkout, or of the QR payment at the door */
   payment_ref?: string; qr_ref?: string; paid_at?: string;
+  /** orders made by the shop for a customer: who made it, and the private token in the customer's tracking link */
+  created_by?: string; share_token?: string;
+  /** promoter attribution: the code used and the customer's discount from it (paise) */
+  promo_code?: string; promoter_id?: string; promo_discount?: number;
   /** every step of the order, oldest first, for the admin's order history */
   history?: { at: string; action: string; by: string; note?: string }[];
 }
@@ -50,6 +55,8 @@ export interface Subscription {
   pauses: { from: string; to: string | null }[];
   cancelled_at: string | null; cancel_end_date: string | null;
   notes: string;
+  /** the daily delivery window the customer chose (older plans: morning) */
+  slot?: string;
   /** the partner the admin chose for this plan: each day's delivery is assigned to them */
   partner_id?: string | null;
 }
@@ -105,7 +112,7 @@ export interface OpsDb {
     channels?: { in_app: "DELIVERED"; sms: "SENT" | "FAILED" | "NOT_CONFIGURED" };
   }[];
   /** QR payment requests by id: server-only gateway records */
-  payreqs?: Record<string, { job_id: string; amount: number; status: "WAITING" | "PROCESSING" | "PAID" | "FAILED"; created_at: string; gateway_ref?: string }>;
+  payreqs?: Record<string, { job_id: string; order_ref?: string; amount: number; status: "WAITING" | "PROCESSING" | "PAID" | "FAILED"; created_at: string; gateway_ref?: string }>;
 }
 
 export class OpsError extends Error {
@@ -174,8 +181,8 @@ export function subscriptionAction(s: Subscription, action: "pause" | "resume" |
 }
 
 /* ---------------- jobs ---------------- */
-const fullAddress = (a: StoredAddress | null) => (a ? [a.line1, a.line2, a.area, a.district, a.pincode && `— ${a.pincode}`].filter(Boolean).join(", ") : "");
-const landmarkOf = (a: StoredAddress | null) => a?.landmark || a?.line2 || "";
+export const fullAddress = (a: StoredAddress | null) => (a ? [a.line1, a.line2, a.area, a.district, a.pincode && `— ${a.pincode}`].filter(Boolean).join(", ") : "");
+export const landmarkOf = (a: StoredAddress | null) => a?.landmark || a?.line2 || "";
 
 export function createOrderJob(db: OpsDb, o: ServerOrder) {
   const regular = o.items.filter((i) => !i.plan);
@@ -185,8 +192,8 @@ export function createOrderJob(db: OpsDb, o: ServerOrder) {
   const date = o.delivery_date && o.delivery_date >= o.date ? o.delivery_date : o.date;
   db.jobs.push({
     id: uid("job"), type: "ORDER", ref: o.ref, source_id: o.ref, date, branch_id: o.branch_id, area: o.area,
-    distance_km: o.distance_km, slot: o.delivery_slot || "Any time",
-    slot_start: new Date(`${date}T07:00:00+05:30`).toISOString(),
+    distance_km: o.distance_km, slot: regular.length ? REGULAR_HOURS.label : o.delivery_slot || REGULAR_HOURS.label,
+    slot_start: new Date(`${date}T${String(REGULAR_HOURS.from).padStart(2, "0")}:00:00+05:30`).toISOString(),
     items: (regular.length ? regular : o.items).map((i) => `${i.name} ${i.size} × ${i.qty}${i.plan ? ` (${i.planDays}-day plan payment)` : ""}`),
     amount: o.total, payment: cod ? "COD" : "PAID", due: cod ? o.total : 0,
     customer: { name: o.customer.name, mobile: o.customer.mobile }, address: fullAddress(o.address), landmark: landmarkOf(o.address),
@@ -212,7 +219,7 @@ export function ensureDailyJobs(db: OpsDb, events: EventLike[], today = istDate(
     const dayNo = cal.days.slice(0, idx + 1).filter((x) => x.status !== "PAUSED" && x.status !== "FAILED").length;
     jobs.push({
       id: uid("job"), type: "SUBSCRIPTION", ref, source_id: s.id, date: today, branch_id: s.branch_id, area: s.area, distance_km: null,
-      slot: "7:00 – 9:00 am", slot_start: new Date(`${today}T07:00:00+05:30`).toISOString(),
+      slot: s.slot ?? "7 – 10 am", slot_start: new Date(`${today}T${String(slotStartHour(s.slot ?? "7 am")).padStart(2, "0")}:00:00+05:30`).toISOString(),
       items: [`${s.product_name} ${s.size} × ${s.qty}`], amount: 0, payment: "PAID", due: 0,
       customer: { name: s.customer.name, mobile: s.customer.mobile }, address: fullAddress(s.address), landmark: landmarkOf(s.address),
       lat: s.address?.lat ?? null, lng: s.address?.lng ?? null, notes: [s.address?.instructions, s.notes].filter(Boolean).join(" · "),

@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { lazy, Suspense, useEffect } from "react";
+import { StaffGuard, PartnerGuard, GuestOnly, RequireCart, RequireJustOrdered } from "@/routes/guards";
 import { StoreProvider } from "@/store/store";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -13,6 +14,7 @@ import { useVisitTracking } from "@/hooks/useVisitTracking";
 import { HeroVideo } from "@/components/HeroVideo";
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
 const AdminPage = lazy(() => import("@/pages/AdminPage").then((m) => ({ default: m.AdminPage })));
+const PromoterPage = lazy(() => import("@/pages/PromoterPage").then((m) => ({ default: m.PromoterPage })));
 const PartnerPage = lazy(() => import("@/pages/PartnerPage").then((m) => ({ default: m.PartnerPage })));
 const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage").then((m) => ({ default: m.ResetPasswordPage })));
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
@@ -32,7 +34,10 @@ const OurStoryPage = lazy(() => import("@/pages/OurStoryPage").then((m) => ({ de
 
 /** New page: start at the top, or at the section a link names (/#services). */
 function ScrollToTop() {
-  const { pathname, hash } = useLocation();
+  const { pathname, hash, search } = useLocation();
+  const navigate = useNavigate();
+  // a doubled slash (//promoter) would otherwise show "page not found"
+  useEffect(() => { if (/\/{2,}/.test(pathname)) navigate(pathname.replace(/\/{2,}/g, "/") + search + hash, { replace: true }); }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!hash) { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); return; }
     const t = window.setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: "smooth" }), 60);
@@ -47,13 +52,12 @@ const PAGE_MOTION: MotionConfig = {
   reveal: [
     [".po-media, .os-portrait", "rv-media"],
     [".card, .pc, .pb-plan, .pb-form, .pb-sum, .bd-row, .pg-more-card, .mp-card, .ohl li, .ev-option", "rv-card"],
-    ["main h1, main h2.display-2, main h2.display-3, main h2.title-xl, main h2.title-lg", "rv-line"],
-    [".eyebrow, .lead, .pg-crumb, .pg-bar, .sec-head > p, .po-body > :not(h2), .os-text > p", "rv-text"],
+    [".eyebrow, main h1, main h2.display-2, main h2.display-3, main h2.title-xl, main h2.title-lg, .lead, .pg-crumb, .pg-bar, .sec-head > p, .po-body > :not(h2), .os-text > p", "rv-text"],
   ],
   parallax: [[".po-media img", -0.05, 0.05], [".os-portrait", -0.05]],
   tilt: ".pc, .pb-plan, .pg-more-card, .mp-card",
 };
-const STILL = ["/partner", "/admin"];
+const STILL = ["/partner", "/admin", "/manager", "/promoter"];
 
 function PageMotion() {
   const { pathname } = useLocation();
@@ -62,13 +66,26 @@ function PageMotion() {
   return null;
 }
 
+/** Staff apps, accounts and payment pages are kept out of search engines (robots.txt says the same). */
+const PRIVATE = /^\/(admin|manager|partner|promoter|account|checkout|cart|login|reset-password|tracking|t\/|pay)/i;
+function usePrivateNoIndex(pathname: string) {
+  useEffect(() => {
+    if (!PRIVATE.test(pathname)) return;
+    const m = document.createElement("meta");
+    m.name = "robots"; m.content = "noindex, nofollow";
+    document.head.appendChild(m);
+    return () => m.remove();
+  }, [pathname]);
+}
+
 function Layout() {
   const { pathname } = useLocation();
   // own full-screen layouts: sign-in, password reset, the delivery partner app and the admin workspace
-  const bare = pathname === "/login" || pathname.startsWith("/reset-password") || pathname.startsWith("/partner") || pathname.startsWith("/admin");
+  const bare = pathname === "/login" || pathname.startsWith("/reset-password") || pathname.startsWith("/partner") || pathname.startsWith("/admin") || pathname.startsWith("/manager") || pathname === "/promoter";
   // the homepage hero runs under the header; other pages start below it
   const home = pathname === "/";
   useVisitTracking();
+  usePrivateNoIndex(pathname);
   return (
     <>
       {/* one pour film, fixed behind every customer screen; it lives here so it keeps playing across pages */}
@@ -83,20 +100,26 @@ function Layout() {
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/product/:id" element={<ProductDetailPage />} />
           <Route path="/cart" element={<CartPage />} />
-          <Route path="/checkout" element={<CheckoutPage />} />
-          <Route path="/confirmation" element={<ConfirmationPage />} />
+          <Route path="/checkout" element={<RequireCart><CheckoutPage /></RequireCart>} />
+          <Route path="/confirmation" element={<RequireJustOrdered><ConfirmationPage /></RequireJustOrdered>} />
           <Route path="/tracking" element={<TrackingPage />} />
           <Route path="/tracking/:id" element={<TrackingPage />} />
+          <Route path="/t/:token" element={<TrackingPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/subscriptions" element={<SubscriptionsPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route path="/branches" element={<BranchesPage />} />
           <Route path="/policies" element={<PoliciesPage />} />
           <Route path="/contact" element={<ContactPage />} />
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
-          <Route path="/partner" element={<PartnerPage />} />
-          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/partner" element={<PartnerGuard><PartnerPage /></PartnerGuard>} />
+          <Route path="/admin" element={<StaffGuard><AdminPage /></StaffGuard>} />
+          <Route path="/manager" element={<StaffGuard><AdminPage /></StaffGuard>} />
+          {/* the promoters screen is a section of the admin workspace: same sign-in (admins and managers) */}
+          {/* promoters check their own orders here (mobile + code, no account) */}
+          <Route path="/promoter" element={<PromoterPage />} />
+          {["/promoters", "/promotor", "/promotors"].map((p) => <Route key={p} path={p} element={<Navigate to="/manager#promoters" replace />} />)}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </Suspense>

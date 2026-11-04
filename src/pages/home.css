@@ -12,9 +12,9 @@
 .home-film { position: fixed; inset: 0; z-index: 0; background: var(--green-deep); }
 .home-film .hero-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 70% 55%; }
 @media (max-width: 760px) {
-  .home-film { inset: 0 auto auto 0; width: 100vw; height: 100dvh; background: var(--green-deep) url("/media/pour-poster-m.jpg") center / cover no-repeat; }
+  .home-film { inset: 0; background: var(--green-deep) url("/media/pour-poster-m.jpg") center / cover no-repeat; }
   .home-film .hero-video { object-position: 50% 50%; }
-  main.on-film, .home { width: 100vw; max-width: none; }
+  .home { width: 100%; max-width: none; }
 }
 .home .hero { background: transparent; z-index: 1; }
 .home .story { z-index: 1; }
@@ -247,11 +247,82 @@
   .tk-track { transform: none !important; }
 }
 
-/* other customer pages: headings rise out of a mask as one line */
-.rv-line { clip-path: inset(0 0 100% 0); transform: translateY(40px); }
-.rv-line.in { clip-path: inset(-10% -5% -20% -5%); }
 
 /* every customer screen sits over the fixed pour film (App.tsx); inner pages get a soft cream veil so text stays
    easy to read, while cards and forms keep their own solid surfaces */
 main.on-film { position: relative; z-index: 1; }
-main.veil { min-height: 100vh; background: linear-gradient(180deg, rgba(250, 247, 240, 0.5), rgba(250, 247, 240, 0.66)); }
+/* inner pages are mostly text, lists and forms: a fuller veil than the homepage; the film still shows through */
+main.veil { min-height: 100vh; background: linear-gradient(180deg, rgba(250, 247, 240, 0.8), rgba(250, 247, 240, 0.88)); }
+
+/* --- phones --- */
+@media (max-width: 600px) {
+  .hs { padding: 56px 0; }
+  .hero h1 { font-size: clamp(2.5rem, 12vw, 3.2rem); }
+  .hero-copy p { font-size: 15px; margin-top: var(--sp-4); }
+  .hero-kicker { font-size: 11px; letter-spacing: 0.16em; margin-bottom: var(--sp-4); }
+  .hp h2 { font-size: 1.45rem; }
+  .intro-media { padding: 0 0 22% 8%; }
+  .intro-owner figcaption { padding: 40px 14px 12px 40%; }
+  .intro-owner figcaption strong { font-size: 1.15rem; }
+  .ev-feat-rate { width: 104px; height: 104px; right: 8px; bottom: 16px; }
+  .ev-feat-rate strong { font-size: 1.9rem; }
+  .ev-plan-foot strong { font-size: 1.5rem; }
+  .tk-item { font-size: 1.25rem; padding: 0 18px; }
+  .tk-item::after { margin-left: 18px; }
+  .rvw-score > strong { font-size: 3rem; }
+  .rvw-card { padding: var(--sp-5); }
+  .rvw-card p { font-size: 1.05rem; }
+  .gl { grid-auto-rows: auto; }
+  .pg-hero { padding-top: var(--sp-8); padding-bottom: var(--sp-6); }
+  .pg-bar { margin-bottom: var(--sp-6); }
+}
+/* desktop: product cards keep a sensible width instead of stretching */
+.pcs { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 420px)); justify-content: start; }
+@media (max-width: 700px) { .pcs { grid-template-columns: 1fr; } }
+
+/* Tamil on the homepage */
+html[lang="ta"] .hero h1 { font-size: clamp(2.2rem, 5.6vw, 4.4rem); line-height: 1.25; }
+html[lang="ta"] .hp h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }
+html[lang="ta"] .hero-kicker, html[lang="ta"] .hp-tag, html[lang="ta"] .sv-cta, html[lang="ta"] .bd-type { letter-spacing: 0.02em; text-transform: none; }
+html[lang="ta"] .tk-item { font-style: normal; }
+
+/* --- Legibility over the film ---
+   Text that sits straight on the see-through veils gets darker tones and a soft cream halo, so it stays clear
+   over bright and busy frames. Cards, buttons and panels have their own solid surfaces and drop the halo. */
+.home > section:not(.hero):not(.story), main.veil {
+  --text: #1F1F1A;
+  --text-muted: #34342C;
+  --text-dim: #4A4A40;
+  text-shadow: 0 0 1px rgba(250, 247, 240, 0.9), 0 0 14px rgba(250, 247, 240, 0.95), 0 0 28px rgba(250, 247, 240, 0.7);
+}
+.home > section:not(.hero):not(.story) .eyebrow, main.veil .eyebrow { color: var(--green-deep); }
+:is(.btn, .card, .pc, .pb-plan, .pb-form, .pb-sum, .rvw-card, .bd-row, .gl-q, .tk, .hp, .pg-more-card, .badge, .modal-panel, .input, .select, .textarea, .qty, .tabs, .chip) {
+  text-shadow: none;
+}
+
+/* branch directory rows become frosted cards */
+.bd { border-top: 0; display: flex; flex-direction: column; gap: 10px; }
+.bd-row { padding: var(--sp-5); border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 16px; background: rgba(255, 255, 255, 0.86); box-shadow: 0 8px 24px rgba(41, 41, 35, 0.08); }
+.bd-num { color: var(--green); font-weight: 600; }
+.pg-more-card { background: rgba(255, 255, 255, 0.82); }
+
+/* --- Text colour follows the surface it sits on ---
+   Light surfaces (veils, cards, forms): near-black text, deep green labels and links.
+   Dark surfaces (hero film, story panel, ticker, footer, green panels, dark summary): white and cream text, orange accents. */
+:is(.home > section:not(.hero):not(.story), main.veil) :is(.label, .eyebrow) { color: var(--green-deep); font-weight: 700; }
+:is(.home > section:not(.hero):not(.story), main.veil) :is(.text-link, summary, .btn-text) { color: var(--green-deep); font-weight: 700; }
+:is(.home > section:not(.hero):not(.story), main.veil) :is(h1, h2, h3) { color: #1A1A16; }
+.hero, .story .intro-text, .hp-event, .tk, .pb-sum { --text: #FFFFFF; --text-muted: rgba(255, 255, 255, 0.9); --text-dim: rgba(255, 255, 255, 0.78); }
+.hero :is(h1, h2, h3, p), .story .intro-text :is(h2, h3), .hp :is(h2, p) { color: #FFFFFF; text-shadow: 0 2px 16px rgba(0, 0, 0, 0.45); }
+.hp-sub { color: #FFFFFF; }
+.hero .hero-kicker, .story .eyebrow, .hp-tag { color: var(--gold) !important; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5); }
+
+/* --- Readability over the banner film ---
+   A deeper shade behind the copy (strongest on phones, where text covers more of the frame) and fuller panels,
+   so white text keeps strong contrast however bright the video gets. */
+.hero-shade { background: linear-gradient(180deg, rgba(10, 14, 12, 0.55) 0%, rgba(10, 14, 12, 0.38) 35%, rgba(10, 14, 12, 0.7) 100%), linear-gradient(90deg, rgba(10, 14, 12, 0.45), rgba(10, 14, 12, 0.1)); }
+@media (max-width: 760px) { .hero-shade { background: linear-gradient(180deg, rgba(10, 14, 12, 0.66) 0%, rgba(10, 14, 12, 0.55) 45%, rgba(10, 14, 12, 0.8) 100%); } }
+.hp-event { background: rgba(0, 70, 60, 0.86); }
+.hp-sub { background: rgba(20, 22, 18, 0.78); }
+.hp p { opacity: 1; color: rgba(255, 255, 255, 0.92) !important; }
+.hero-copy p { color: rgba(255, 255, 255, 0.95); }

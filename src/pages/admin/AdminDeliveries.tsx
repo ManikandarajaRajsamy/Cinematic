@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Clock, MapPin, Plus, Pencil, KeyRound, Power, Wallet } from "lucide-react";
+import { AlertTriangle, Clock, MapPin, Plus, Pencil, KeyRound, Power, Wallet, Banknote, Smartphone, HandCoins, Phone } from "lucide-react";
 import { useApi } from "@/api/client";
 import { ops, inr, type AdminJob, type PartnerView } from "@/api/ops";
 import { useStore } from "@/store/store";
 import { Modal } from "@/components/Modal";
 import { errorsFrom, FieldError } from "./shared";
+import { Picker } from "./Picker";
 import { Skeleton, inBranch, useBranchFilter } from "./ui";
 
 const TYPE_LABEL = { ORDER: "Delivery", SUBSCRIPTION: "Subscription", EVENT: "Event" } as const;
@@ -24,10 +25,8 @@ export function AssignSelect({ j, onDone }: { j: { id: string; status: AdminJob[
     catch (e) { toast(errorsFrom(e).message, "error"); }
   };
   return (
-    <select className="select assign-select" aria-label="Assign delivery partner" value={j.partner_id ?? ""} onClick={(e) => e.stopPropagation()} onChange={(e) => assign(e.target.value)}>
-      <option value="">{active.length ? "Assign a partner…" : "Add a partner first"}</option>
-      {active.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.mobile}</option>)}
-    </select>
+    <Picker label="Assign delivery partner" value={j.partner_id ?? ""} placeholder="Assign a partner" emptyText="Add a partner first" clearLabel="Remove partner"
+      options={active.map((p) => ({ id: p.id, label: p.name, sub: `+91 ${p.mobile}`, hint: p.branch_id === j.branch_id ? "Same branch" : undefined }))} onChange={assign} />
   );
 }
 
@@ -58,10 +57,8 @@ export function PlanPartnerSelect({ plan, onDone }: { plan: { id: string; partne
     catch (e) { toast(errorsFrom(e).message, "error"); }
   };
   return (
-    <select className="select assign-select" aria-label="Plan delivery partner" value={plan.partner_id ?? ""} onClick={(e) => e.stopPropagation()} onChange={(e) => assign(e.target.value)}>
-      <option value="">{active.length ? "Assign plan partner…" : "Add a partner first"}</option>
-      {active.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.mobile}</option>)}
-    </select>
+    <Picker label="Plan delivery partner" value={plan.partner_id ?? ""} placeholder="Assign plan partner" emptyText="Add a partner first" clearLabel="Remove plan partner"
+      options={active.map((p) => ({ id: p.id, label: p.name, sub: `+91 ${p.mobile}`, hint: p.branch_id === plan.branch_id ? "Same branch" : undefined }))} onChange={assign} />
   );
 }
 
@@ -115,6 +112,7 @@ export function AdminDeliveries() {
 }
 
 /* ---------------- Cash collection ---------------- */
+/** Cash the partners collected at the door, and what is still to be handed over to the shop. */
 export function AdminCash() {
   const { data, loading, reload } = useApi("admin-cash", ops.cash);
   const { branch } = useBranchFilter();
@@ -127,24 +125,88 @@ export function AdminCash() {
     catch (e) { toast(errorsFrom(e).message, "error"); }
   };
   if (loading && !data) return <Skeleton rows={3} />;
-  if (!rows.length) return <div className="card admin-empty">No delivery partners yet.</div>;
+  if (!rows.length) return <div className="card admin-empty">No delivery partners yet. Add them under Delivery partners.</div>;
+  const sum = (k: "pending" | "cash_today" | "upi_today" | "handed_over") => rows.reduce((n, r) => n + r[k], 0);
+  const tiles = [
+    { label: "Pending with partners", value: sum("pending"), icon: Wallet, tone: "t-wait" },
+    { label: "Cash collected today", value: sum("cash_today"), icon: Banknote, tone: "t-done" },
+    { label: "UPI collected today", value: sum("upi_today"), icon: Smartphone, tone: "t-info" },
+    { label: "Handed over (all time)", value: sum("handed_over"), icon: HandCoins, tone: "t-all" },
+  ];
   return (
-    <div className="admin-table-wrap page-fade">
-      <table className="admin-table rt">
-        <thead><tr><th>Partner</th><th>COD cash today</th><th>UPI today</th><th>Handed over (all)</th><th>Pending</th><th></th></tr></thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.partner_id}>
-              <td data-label="Partner"><strong>{r.name}</strong><br /><small>+91 {r.mobile}</small></td>
-              <td data-label="Cash today">{inr(r.cash_today)}</td>
-              <td data-label="UPI today">{inr(r.upi_today)}</td>
-              <td data-label="Handed over">{inr(r.handed_over)}{r.handovers.length > 0 && <><br /><small style={{ color: "var(--text-dim)" }}>last {new Date(r.handovers[r.handovers.length - 1].at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</small></>}</td>
-              <td data-label="Pending"><strong style={{ color: r.pending ? "var(--accent-gold-bright)" : undefined }}>{inr(r.pending)}</strong></td>
-              <td data-label=""><button className="btn btn-sm btn-primary" disabled={!r.pending} onClick={() => receive(r.partner_id, r.name, r.pending)}><Wallet size={14} /> Mark received</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="page-fade cc">
+      <div className="cc-tiles">
+        {tiles.map((t) => (
+          <div key={t.label} className={`cc-tile ${t.tone}`}>
+            <span className="cc-ic"><t.icon size={20} /></span>
+            <div><small>{t.label}</small><strong>{inr(t.value)}</strong></div>
+          </div>
+        ))}
+      </div>
+      <ul className="cc-list">
+        {rows.map((r) => {
+          const last = r.handovers[r.handovers.length - 1];
+          return (
+            <li key={r.partner_id} className={`cc-card ${r.pending ? "due" : ""}`}>
+              <div className="cc-who">
+                <span className="cc-av">{r.name.charAt(0).toUpperCase()}</span>
+                <div><strong>{r.name}</strong><a href={`tel:+91${r.mobile}`}><Phone size={12} /> +91 {r.mobile}</a></div>
+                <span className={`badge dot ${r.pending ? "badge-saffron" : "badge-success"}`}>{r.pending ? "To collect" : "Settled"}</span>
+              </div>
+              <div className="cc-due">
+                <small>Pending handover</small>
+                <strong>{inr(r.pending)}</strong>
+              </div>
+              <dl className="cc-stats">
+                <div><dt>Cash today</dt><dd>{inr(r.cash_today)}</dd></div>
+                <div><dt>UPI today</dt><dd>{inr(r.upi_today)}</dd></div>
+                <div><dt>Handed over</dt><dd>{inr(r.handed_over)}</dd></div>
+              </dl>
+              <div className="cc-foot">
+                <span>{last ? <>Last handover {inr(last.amount)} · {new Date(last.at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</> : "No handovers yet"}</span>
+                {r.pending > 0 && <button className="btn btn-primary btn-sm" onClick={() => receive(r.partner_id, r.name, r.pending)}><Wallet size={14} /> Mark received</button>}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <style>{`
+        .cc-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+        .cc-tile { display: flex; align-items: center; gap: 12px; padding: 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-card); }
+        .cc-tile > div { display: flex; flex-direction: column; min-width: 0; }
+        .cc-tile small { font-size: 12px; color: var(--text-dim); }
+        .cc-tile strong { font-size: 1.3rem; }
+        .cc-ic { width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; display: grid; place-items: center; }
+        .t-all .cc-ic { background: rgba(91, 95, 239, 0.12); color: #5B5FEF; }
+        .t-wait .cc-ic { background: rgba(255, 159, 67, 0.16); color: #D9770F; }
+        .t-info .cc-ic { background: rgba(0, 184, 217, 0.13); color: #0091AD; }
+        .t-done .cc-ic { background: rgba(40, 199, 111, 0.14); color: #1E9E57; }
+        .cc-list { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+        .cc-card { display: flex; flex-direction: column; gap: 14px; padding: 18px; border-radius: 14px; border: 1px solid var(--border); background: var(--bg-card); }
+        .cc-card.due { box-shadow: inset 3px 0 0 #FF9F43; }
+        .cc-who { display: flex; align-items: center; gap: 12px; }
+        .cc-who > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .cc-who a { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--accent-gold); }
+        .cc-av { width: 42px; height: 42px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: var(--accent-gold-glow); color: var(--accent-gold); font-weight: 700; font-size: 16px; }
+        .cc-due { padding: 14px 16px; border-radius: 12px; background: var(--bg-elevated); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .cc-due small { font-size: 12.5px; color: var(--text-dim); }
+        .cc-due strong { font-size: 1.6rem; }
+        .cc-card.due .cc-due strong { color: #D9770F; }
+        .cc-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+        .cc-stats div { display: flex; flex-direction: column; gap: 2px; padding: 10px; border-radius: 10px; border: 1px solid var(--border); }
+        .cc-stats dt { font-size: 11.5px; color: var(--text-dim); }
+        .cc-stats dd { font-weight: 700; }
+        .cc-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px dashed var(--border); font-size: 12.5px; color: var(--text-dim); }
+        @media (max-width: 1100px) { .cc-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 700px) {
+          .cc-tiles { gap: 8px; }
+          .cc-tile { padding: 12px; gap: 10px; }
+          .cc-ic { width: 36px; height: 36px; }
+          .cc-tile strong { font-size: 1.1rem; }
+          .cc-list { grid-template-columns: 1fr; }
+          .cc-foot .btn { flex: 1 1 100%; }
+        }
+      `}</style>
     </div>
   );
 }

@@ -17,7 +17,7 @@ export function SubscriptionsPage() {
           </div>
           <p className="lead">{t(
             "Choose 7, 15 or 30 days, the parcel size, how many you need each day and when to start. You pay once by UPI at checkout, and plan deliveries are free.",
-            "7, 15 அல்லது 30 நாட்கள், அளவு, ஒரு நாளைக்கு எத்தனை, எப்போது தொடங்க வேண்டும் என்பதைத் தேர்வு செய்யுங்கள். செக்அவுட்டில் ஒரு முறை UPI-ல் செலுத்துங்கள்.",
+            "7, 15 அல்லது 30 நாட்கள், அளவு, ஒரு நாளைக்கு எத்தனை, எப்போது தொடங்க வேண்டும் என்பதைத் தேர்வு செய்யுங்கள். செக்அவுட்டில் ஒரே முறை UPI மூலம் செலுத்துங்கள்.",
           )}</p>
         </div>
       </section>
