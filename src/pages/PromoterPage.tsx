@@ -12,7 +12,7 @@ type Stats = {
   recent: { date: string; kind: "REGULAR" | "PLAN" | "EVENT"; ref: string; status: "PENDING" | "EARNED" | "PAID" | "REVERSED"; amount: number | null }[];
 };
 const KIND = { REGULAR: { label: "Home delivery", icon: ShoppingBag }, PLAN: { label: "Subscription", icon: Repeat }, EVENT: { label: "Event order", icon: PartyPopper } };
-const STATUS = { PENDING: ["In progress", "pm-pending"], EARNED: ["Earned", "pm-earned"], PAID: ["Paid", "pm-paid"], REVERSED: ["Cancelled", "pm-rev"] } as const;
+const STATUS = { PENDING: ["Awaiting payment", "pm-pending"], EARNED: ["Earned", "pm-earned"], PAID: ["Paid", "pm-paid"], REVERSED: ["Cancelled", "pm-rev"] } as const;
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
@@ -71,8 +71,8 @@ export function PromoterPage() {
 
             <div className="pm-tiles">
               <div className="pm-card pm-tile"><span className="pm-t t1"><ShoppingBag size={18} /></span><div><small>Total orders</small><b>{stats.counts.total}</b></div></div>
-              <div className="pm-card pm-tile"><span className="pm-t t2"><CheckCircle2 size={18} /></span><div><small>Completed</small><b>{stats.counts.completed}</b></div></div>
-              <div className="pm-card pm-tile"><span className="pm-t t3"><Clock size={18} /></span><div><small>In progress</small><b>{stats.in_progress}</b></div></div>
+              <div className="pm-card pm-tile"><span className="pm-t t2"><CheckCircle2 size={18} /></span><div><small>Paid orders</small><b>{stats.counts.completed}</b></div></div>
+              <div className="pm-card pm-tile"><span className="pm-t t3"><Clock size={18} /></span><div><small>Awaiting payment</small><b>{stats.in_progress}</b></div></div>
               <div className="pm-card pm-tile"><span className="pm-t t4"><Wallet size={18} /></span><div><small>Earned · not paid yet</small><b>{rupees(stats.commission.earned)}</b></div></div>
             </div>
 
@@ -99,7 +99,7 @@ export function PromoterPage() {
                   })}
                 </ul>
               )}
-              <p className="pm-note">Your commission amount appears once an order is delivered and its payment is confirmed. Orders still in progress show only their count and details. Cancelled orders don't earn commission. Customer details are private and not shown here.</p>
+              <p className="pm-note">Your commission amount appears as soon as the customer's payment is received. Orders waiting for payment show only their count and details. Cancelled orders don't earn commission. Customer details are private and not shown here.</p>
             </div>
           </div>
         )}

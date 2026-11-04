@@ -833,6 +833,7 @@ const toOrderStatus: Record<Job["status"], ServerOrder["status"]> = { READY: "co
 
 /** Updates the order / subscription day / event a job came from. */
 function syncSource(d: Db, j: Job) {
+  refreshCommissions(d);
   if (j.type === "ORDER") {
     const o = (d.orders ?? []).find((x) => x.ref === j.source_id);
     if (o && o.status !== "cancelled" && o.status !== "rejected") {
@@ -972,13 +973,24 @@ function settleQr(d: Db, payreqId: string, status: "PAID" | "FAILED", gatewayRef
 function rand() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), (x) => x.toString(16).padStart(2, "0")).join(""); }
 
 /** Plans that have finished (all deliveries made, or a cancelled plan past its end date) earn their commission. */
-function refreshPlanCommissions(d: Db) {
-  const today = istDate();
-  for (const c of (d.commissions ?? []).filter((x) => x.kind === "PLAN" && x.status === "PENDING")) {
-    const s = d.subs?.find((x) => x.id === c.source_id);
-    const o = s && d.orders?.find((x) => x.ref === s.order_ref);
-    if (o && (o.status === "rejected" || o.status === "cancelled")) reverseCommissions(d, (x) => x.id === c.id, `order ${o.status}`);
-    else if (s && viewSub(s, today).status === "COMPLETED") earnCommissions(d, (x) => x.id === c.id);
+/**
+ * A promoter's commission is earned as soon as the customer's payment is received:
+ * paid online at checkout or by link, cash or QR at the door, or (events) the paruthipaal price paid in full.
+ * Cancelled or rejected orders reverse it (unless already paid out to the promoter).
+ */
+function refreshCommissions(d: Db) {
+  for (const c of (d.commissions ?? []).filter((x) => x.status === "PENDING")) {
+    if (c.kind === "EVENT") {
+      const e = d.eventRequests?.find((x) => x.id === c.source_id);
+      if (!e) continue;
+      if (e.status === "CANCELLED") reverseCommissions(d, (x) => x.id === c.id, "event cancelled");
+      else if (e.status === "COMPLETED" || (e.advance_paid ?? 0) + (e.balance_collected ?? 0) >= e.base_amount) earnCommissions(d, (x) => x.id === c.id);
+      continue;
+    }
+    const o = d.orders?.find((x) => x.ref === c.ref);
+    if (!o) continue;
+    if (o.status === "rejected" || o.status === "cancelled") reverseCommissions(d, (x) => x.id === c.id, `order ${o.status}`);
+    else if (o.payment_status && o.payment_status !== "DUE") earnCommissions(d, (x) => x.id === c.id);
   }
 }
 
@@ -1178,7 +1190,7 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
       if (tries.length >= 5) throw new ApiError(429, "Too many tries. Wait 15 minutes and try again.");
       const p = (d.promoters ?? []).find((x) => x.active && x.mobile === mobile && x.code === normaliseCode(b.code));
       if (!p) { tries.push(Date.now()); throw new ApiError(401, "This number and promo code don't match. Check both and try again."); }
-      refreshPlanCommissions(d);
+      refreshCommissions(d);
       const mine = (d.commissions ?? []).filter((c) => c.promoter_id === p.id);
       const t = commissionTotals(mine);
       const count = (k: string) => new Set(mine.filter((c) => c.kind === k && c.status !== "REVERSED").map((c) => c.ref)).size;
@@ -1198,7 +1210,7 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
     }
     case "GET /admin/promoters": {
       requireAdmin(adminToken);
-      refreshPlanCommissions(d);
+      refreshCommissions(d);
       return (d.promoters ?? []).map((p) => ({ ...publicPromoter(p), totals: commissionTotals((d.commissions ?? []).filter((c) => c.promoter_id === p.id)) }));
     }
     case "POST /admin/promoters":
@@ -1212,7 +1224,7 @@ function opsRoute(method: string, scope: string, resource: string, id: string | 
     }
     case "GET /admin/commissions": {
       requireAdmin(adminToken);
-      refreshPlanCommissions(d);
+      refreshCommissions(d);
       commit();
       const names = Object.fromEntries((d.promoters ?? []).map((p) => [p.id, p.name]));
       const brands = Object.fromEntries((d.promoters ?? []).map((p) => [p.id, [p.brand, p.channel].filter(Boolean).join(" · ")]));

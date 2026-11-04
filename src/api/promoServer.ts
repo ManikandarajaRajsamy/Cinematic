@@ -6,7 +6,8 @@
 //   Event orders             · no customer discount            · promoter 10% commission
 // Discounts and commissions use product prices only, never delivery charges, taxes or service/transport fees.
 // Commission is worked out on the product price before the customer's discount, recorded as PENDING when the
-// order is placed, EARNED once the order is completed, and REVERSED if the order is cancelled or rejected.
+// order is placed, EARNED as soon as the customer's payment is received (online, by link, cash or QR at the door;
+// events once the paruthipaal price is paid in full), and REVERSED if the order is cancelled or rejected before it is paid out.
 
 export const PROMO_DISCOUNT_PCT = 5;
 /** Where a promoter brings customers from. */

@@ -27,7 +27,7 @@ const when = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("en-IN", 
 /**
  * Promoters and their commissions. Fixed rules: promoter codes give customers 5% off product prices on home delivery
  * and subscriptions (none on events); promoters earn 10% of the product price before the discount on all three.
- * Commission is pending until the order is completed, reversed if it is cancelled, and paid out from here.
+ * Commission is pending until the customer has paid, reversed if the order is cancelled, and paid out from here.
  */
 export function AdminPromoters() {
   const promoters = useApi("admin-promoters", ops.promoters);
@@ -151,7 +151,7 @@ export function AdminPromoters() {
                       <td>{inr(c.base)}</td>
                       <td>{c.discount ? `−${inr(c.discount)} (5%)` : "No discount"}</td>
                       <td><b>{inr(c.amount)}</b><small>10%</small></td>
-                      <td><span className={`badge dot ${STATUS[c.status].cls}`}>{STATUS[c.status].label}</span><small>{c.status === "PAID" ? `paid ${when(c.paid_at)}` : c.status === "EARNED" ? `earned ${when(c.earned_at)}` : c.status === "REVERSED" ? c.note : "order not completed yet"}</small></td>
+                      <td><span className={`badge dot ${STATUS[c.status].cls}`}>{STATUS[c.status].label}</span><small>{c.status === "PAID" ? `paid ${when(c.paid_at)}` : c.status === "EARNED" ? `earned ${when(c.earned_at)}` : c.status === "REVERSED" ? c.note : "waiting for the customer's payment"}</small></td>
                     </tr>
                   ))}
                 </tbody>
