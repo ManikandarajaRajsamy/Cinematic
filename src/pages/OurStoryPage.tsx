@@ -47,7 +47,7 @@ export function OurStoryPage() {
               If you have not yet tried our paruthi paal, we invite you to do so. It would be our pleasure to serve you.
             </p>
             <div className="os-actions mt-8">
-              <Link to="/products" className="btn btn-primary btn-lg">Order now <ArrowRight size={18} /></Link>
+              <Link to="/events" className="btn btn-primary btn-lg">Plan an event order <ArrowRight size={18} /></Link>
               <Link to="/branches" className="btn btn-ghost btn-lg">Find an outlet</Link>
             </div>
           </div>

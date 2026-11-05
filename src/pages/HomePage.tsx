@@ -1,12 +1,9 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, ArrowUpRight, PartyPopper, CalendarCheck, Truck, Users, Store } from "lucide-react";
+import { ArrowRight, ArrowUpRight, PartyPopper, Phone, Truck, Users, Store } from "lucide-react";
 import { BgVideo } from "@/components/BgVideo";
-import { ParcelCards } from "@/components/ParcelCards";
-import { PlanBuilder } from "@/components/PlanBuilder";
 import { BranchDirectory } from "@/components/BranchDirectory";
-import { MyPlans } from "@/components/MyPlans";
-import { usePublicBranches } from "@/api/client";
+import { usePublicBranches, useDeliverySettings } from "@/api/client";
 import { GOOGLE_REVIEWS_URL, HEALTH_NOTE, INGREDIENTS, REVIEW_QUOTES, REVIEW_TOPICS, SHOP } from "@/data/home";
 import { EVENT_RATE_PER_LITRE, EVENT_TYPES, SERVICE_OPTIONS, type ServiceOption } from "@/data/events";
 import { upcomingDates } from "@/data/delivery";
@@ -20,7 +17,7 @@ import "./home.css";
 const HOME_MOTION: MotionConfig = {
   reveal: [
     [".intro-media, .gl > img, .gl-logo", "rv-media"],
-    [".hp, .pb-plan, .pb-form, .pb-sum, .pc, .rvw-card, .bd-row, .gl-q", "rv-card"],
+    [".hp, .pb-plan, .pb-form, .pb-sum, .pc, .rvw-card, .bx-card, .gl-q", "rv-card"],
     ["h2.words", "rv-split"],
     [".intro-text > :not(h2), .sub-head > div > :not(h2), .rvw-side > :not(h2), .br-head > :not(h2), .gl-head > div > :not(h2)", "rv-text"],
     [".ev-feat-body > :not(h2), .sub-head > p", "rv-text-r"],
@@ -94,8 +91,6 @@ export function HomePage() {
       <Story />
       <IngredientTicker />
       <EventsFeature />
-      <Subscribe />
-      <Delivery />
       <Reviews />
       <Branches />
       <Gallery />
@@ -125,6 +120,7 @@ function IngredientTicker() {
 /* 1 · Hero: the landing film, with the two main services as its own panels */
 function Hero() {
   const { t } = useLang();
+  const phone = useDeliverySettings().data?.support_phone;
   return (
     <section className="hero" aria-label={t("Tradition in every drop", "ஒவ்வொரு துளியிலும் பாரம்பரியம்")}>
       <div className="hero-shade" />
@@ -144,14 +140,14 @@ function Hero() {
             <p>{t(`Bulk paruthipaal at ₹${EVENT_RATE_PER_LITRE / 100} a litre · pickup, delivery or a live counter`, `லிட்டருக்கு ₹${EVENT_RATE_PER_LITRE / 100} · கடையில் பெறுதல், டெலிவரி அல்லது நேரடி கவுண்டர்`)}</p>
             <span className="btn btn-gold">{t("Plan an event order", "விழா ஆர்டர் செய்யுங்கள்")} <ArrowRight size={16} /></span>
           </a>
-          <a href="#subscribe" className="hp hp-sub">
-            <span className="hp-tag"><CalendarCheck size={15} /> {t("Daily subscription", "தினசரி சந்தா")}</span>
-            <h2>{t("Every morning, for 7, 15 or 30 days", "7, 15 அல்லது 30 நாட்கள், தினமும் உங்கள் வீட்டுக்கே")}</h2>
-            <p>{t("Pick your start date · pay once by UPI · free delivery", "தொடக்க நாளைத் தேர்வு செய்யுங்கள் · ஒரே முறை UPI கட்டணம் · இலவச டெலிவரி")}</p>
-            <span className="btn btn-primary">{t("Start a subscription", "சந்தாவைத் தொடங்குங்கள்")} <ArrowRight size={16} /></span>
+          <a href={phone ? `tel:${phone}` : "/contact"} className="hp hp-sub">
+            <span className="hp-tag"><Users size={15} /> {t("Live counter", "நேரடி கவுண்டர்")}</span>
+            <h2>{t("Our staff serve it hot at your venue", "உங்கள் இடத்திலேயே சூடாகப் பரிமாறுகிறோம்")}</h2>
+            <p>{t("Talk to us about the date, the guests and the venue. We call back the same day.", "தேதி, விருந்தினர், இடம் பற்றி பேசுங்கள். அன்றே அழைக்கிறோம்.")}</p>
+            <span className="btn btn-primary"><Phone size={16} /> {t("Call to plan", "அழைக்கவும்")}{phone ? ` · ${phone}` : ""}</span>
           </a>
         </div>
-        <Link to="/products" className="hero-third"><Truck size={16} /> {t("Or order a 500 ML or 1 L parcel for home delivery", "அல்லது 500 மி.லி / 1 லி பார்சலை வீட்டுக்கு ஆர்டர் செய்யுங்கள்")} <ArrowRight size={15} /></Link>
+        <Link to="/events#quote" className="hero-third"><PartyPopper size={16} /> {t("Book your event order online in two minutes", "இரண்டு நிமிடத்தில் ஆன்லைனில் விழா ஆர்டர் செய்யுங்கள்")} <ArrowRight size={15} /></Link>
       </div>
     </section>
   );
@@ -212,25 +208,6 @@ function EventsFeature() {
   );
 }
 
-/* 4 · Home delivery: the secondary offer */
-function Delivery() {
-  const { t } = useLang();
-  return (
-    <section id="product" className="hs hs-white">
-      <div className="container">
-        <div className="sub-head">
-          <div>
-            <span className="eyebrow">{t("Home delivery", "வீட்டு டெலிவரி")}</span>
-            <h2 className="display-3 words"><Split text={t("Hot parcels, delivered to your door.", "சூடான பார்சல், உங்கள் வீட்டு வாசலுக்கே.")} /></h2>
-          </div>
-          <p className="lead">{t("Sealed hot and delivered across Madurai district. Set your location at checkout to see the delivery fee.", "சூடாக அடைத்து, மதுரை மாவட்டம் முழுவதும் டெலிவரி செய்கிறோம். டெலிவரி கட்டணத்தை அறிய, செக்அவுட்டில் உங்கள் இருப்பிடத்தைக் குறிப்பிடுங்கள்.")}</p>
-        </div>
-        <ParcelCards />
-      </div>
-    </section>
-  );
-}
-
 /* 2 · Our story: welcome, the founder and our journey */
 function Story() {
   const { t } = useLang();
@@ -280,27 +257,6 @@ function OwnerPortrait() {
     </figure>
   );
 }
-
-/* 3 · Subscription */
-function Subscribe() {
-  const { t } = useLang();
-  return (
-    <section id="subscribe" className="hs hs-beige">
-      <div className="container">
-        <div className="sub-head">
-          <div>
-            <span className="eyebrow">{t("Daily subscription", "தினசரி சந்தா")}</span>
-            <h2 className="display-3 words"><Split text={t("Start a subscription. Wake up to it every morning.", "சந்தா தொடங்குங்கள். தினமும் காலையில் உங்கள் வீட்டுக்கே.")} /></h2>
-          </div>
-          <p className="lead">{t("Choose 7, 15 or 30 days, the parcel size, how many each day and your start date. Pay once by UPI; we deliver every morning.", "7, 15, 30 நாட்கள், அளவு, ஒரு நாளைக்கு எத்தனை, தொடக்க நாள். ஒரே முறை UPI மூலம் செலுத்துங்கள்.")}</p>
-        </div>
-        <PlanBuilder />
-        <div className="sub-mine"><MyPlans /></div>
-      </div>
-    </section>
-  );
-}
-
 
 /* Customer reviews: genuine Google reviews, quoted as written */
 function Reviews() {

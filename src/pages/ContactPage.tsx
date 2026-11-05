@@ -43,7 +43,7 @@ export function ContactPage() {
         <div>
           <span className="eyebrow">Contact</span>
           <h1 className="display-2">We'd love to hear from you</h1>
-          <p className="lead" style={{ marginTop: 16 }}>Questions about an order, a subscription, or an event booking? Send us a note.</p>
+          <p className="lead" style={{ marginTop: 16 }}>Questions about an event booking? Send us a note.</p>
           <div className="contact-info">
             <span className="badge"><MapPin size={12} /> Madurai district</span>
             <span className="badge"><Mail size={12} /> Replies within 1–2 business days</span>
@@ -68,7 +68,6 @@ export function ContactPage() {
             <label className="label" htmlFor="c-topic">Topic</label>
             <select id="c-topic" className="select" value={form.topic} onChange={set("topic")}>
               <option value="order">Order &amp; delivery</option>
-              <option value="subscription">Subscriptions</option>
               <option value="events">Events &amp; bulk orders</option>
               <option value="referral">Refer &amp; Earn</option>
               <option value="other">Something else</option>

@@ -1,9 +1,8 @@
 // The admin workspace. Loaded only after a successful sign-in, so visitors never download the admin screens.
 import { useEffect, useState } from "react";
-import { RotateCcw, LogOut, ShieldCheck, LayoutDashboard, Truck, ShoppingBag, Repeat, PartyPopper, Users, Bike, Wallet, Package, Store, MapPinned, History, Menu, Search, Sun, Moon, Bell, UserRound, ChevronsRight, Megaphone } from "lucide-react";
+import { RotateCcw, LogOut, ShieldCheck, LayoutDashboard, Truck, PartyPopper, CalendarClock, Users, Bike, Wallet, Package, Store, MapPinned, History, Menu, Search, Sun, Moon, Bell, UserRound, ChevronsRight, Megaphone } from "lucide-react";
 import { useStore } from "@/store/store";
 import { api, useApi } from "@/api/client";
-import { ops } from "@/api/ops";
 import { AdminBranches } from "./AdminBranches";
 import { AdminProducts } from "./AdminProducts";
 import { AdminDelivery, AdminAudit } from "./AdminDelivery";
@@ -12,37 +11,33 @@ import { AdminEvents } from "./AdminEvents";
 import { AdminCustomers } from "./AdminCustomers";
 import { AdminDashboard } from "./AdminDashboard";
 import { AdminDeliveries, AdminCash, AdminPartners } from "./AdminDeliveries";
-import { AdminOrders } from "./AdminOrders";
 import { AdminPromoters } from "./AdminPromoters";
 import { AdminTeam } from "./AdminTeam";
-import { AdminSubscriptions } from "./AdminSubscriptions";
 import { AdminUiStyles, BranchFilterCtx } from "./ui";
 import { adminShellCss } from "./shellStyles";
 import { useIdleSignOut } from "@/hooks/useIdleSignOut";
 
-const TABS = ["dashboard", "deliveries", "orders", "subscriptions", "events", "cash", "partners", "customers", "products", "branches", "delivery", "audit", "promoters", "team"] as const;
+const TABS = ["events", "dashboard", "deliveries", "cash", "partners", "customers", "products", "branches", "delivery", "audit", "promoters", "team"] as const;
 type Tab = (typeof TABS)[number];
 
 /* ---------------- admin workspace: sidebar, top bar, page header, content ---------------- */
-type NavItem = { id: Tab; label: string; icon: typeof LayoutDashboard; badge?: "pending" | "plans" };
+type NavItem = { id: Tab; label: string; icon: typeof LayoutDashboard; badge?: "events" };
 const NAV: { title: string; items: NavItem[] }[] = [
-  { title: "Overview", items: [{ id: "dashboard", label: "Dashboard", icon: LayoutDashboard }, { id: "deliveries", label: "Deliveries today", icon: Truck }] },
-  { title: "Sales", items: [
-    { id: "orders", label: "Orders", icon: ShoppingBag, badge: "pending" },
-    { id: "subscriptions", label: "Subscriptions", icon: Repeat, badge: "plans" },
-    { id: "events", label: "Event orders", icon: PartyPopper },
+  { title: "Event orders", items: [{ id: "events", label: "Event orders", icon: PartyPopper, badge: "events" }, { id: "deliveries", label: "Deliveries today", icon: Truck }] },
+  { title: "Overview", items: [{ id: "dashboard", label: "Dashboard", icon: LayoutDashboard }] },
+  { title: "People", items: [
     { id: "customers", label: "Customers", icon: Users },
     { id: "promoters", label: "Promoters", icon: Megaphone },
   ] },
   { title: "Operations", items: [{ id: "partners", label: "Delivery partners", icon: Bike }, { id: "cash", label: "Cash collection", icon: Wallet }] },
   { title: "Store setup", items: [
     { id: "products", label: "Products & prices", icon: Package }, { id: "branches", label: "Branches", icon: Store },
-    { id: "delivery", label: "Delivery fees", icon: MapPinned }, { id: "audit", label: "Audit log", icon: History },
+    { id: "delivery", label: "Shop settings", icon: MapPinned }, { id: "audit", label: "Audit log", icon: History },
   ] },
   { title: "Settings", items: [{ id: "team", label: "Team & access", icon: ShieldCheck }] },
 ];
 const GROUP_OF = Object.fromEntries(NAV.flatMap((g) => g.items.map((i) => [i.id, g.title]))) as Record<Tab, string>;
-const tabFromHash = (): Tab => { const h = window.location.hash.slice(1) as Tab; return (TABS as readonly string[]).includes(h) ? h : "dashboard"; };
+const tabFromHash = (): Tab => { const h = window.location.hash.slice(1) as Tab; return (TABS as readonly string[]).includes(h) ? h : "events"; };
 const greeting = () => { const h = Number(new Date().toLocaleString("en-IN", { hour: "numeric", hour12: false, timeZone: "Asia/Kolkata" })); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; };
 
 export function Dashboard({ onOut }: { onOut: () => void }) {
@@ -55,13 +50,14 @@ export function Dashboard({ onOut }: { onOut: () => void }) {
   const [dark, setDark] = useState(() => { try { return localStorage.getItem("ssp-admin-theme") === "dark"; } catch { return false; } });
   const { toast } = useStore();
   const { data: branchList } = useApi("admin-branches", api.admin.branches);
-  const orders = useApi("admin-orders", ops.orders);
-  const subs = useApi("admin-subscriptions", ops.subscriptions);
+  const events = useApi("admin-event-requests", api.admin.eventRequests);
   const branches = (branchList ?? []).map((b) => ({ id: b.id, name: b.name_en }));
-  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
-  const pendingOrders = (orders.data ?? []).filter((o) => o.status === "pending" && o.items.some((i) => !i.plan));
-  const pendingPlans = (subs.data ?? []).filter((x) => x.order_status === "pending");
-  const badge = (b?: NavItem["badge"]) => (b === "pending" ? pendingOrders.length : b === "plans" ? pendingPlans.length : 0);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const soon = new Date(Date.now() + 2 * 86_400_000).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const newEvents = (events.data ?? []).filter((e) => e.status === "NEW");
+  // confirmed events in the next two days: a reminder to prepare and call the customer
+  const soonEvents = (events.data ?? []).filter((e) => e.status === "CONFIRMED" && e.event_date >= today && e.event_date <= soon);
+  const badge = (b?: NavItem["badge"]) => (b === "events" ? newEvents.length : 0);
   const who = useApi("admin-me", api.adminMe);
   const me = who.data?.mobile ?? "";
   // an expired or old session: back to the sign-in screen instead of a workspace where every action fails
@@ -132,14 +128,14 @@ export function Dashboard({ onOut }: { onOut: () => void }) {
             <button className="adx-ic" aria-label={dark ? "Light mode" : "Dark mode"} onClick={() => setDark((d) => !d)}>{dark ? <Sun size={19} /> : <Moon size={19} />}</button>
             <div className="adx-rel" onClick={(e) => e.stopPropagation()}>
               <button className="adx-ic" aria-label="Notifications" aria-expanded={menu === "bell"} onClick={() => setMenu(menu === "bell" ? "" : "bell")}>
-                <Bell size={19} />{pendingOrders.length + pendingPlans.length > 0 && <span className="adx-dot" />}
+                <Bell size={19} />{newEvents.length + soonEvents.length > 0 && <span className="adx-dot" />}
               </button>
               {menu === "bell" && (
                 <div className="adx-pop adx-bell">
                   <strong>Waiting for you</strong>
-                  {pendingOrders.length + pendingPlans.length === 0 && <p>All caught up.</p>}
-                  {pendingOrders.length > 0 && <button onClick={() => setTab("orders")}><ShoppingBag size={15} /> {pendingOrders.length} order{pendingOrders.length > 1 ? "s" : ""} to confirm</button>}
-                  {pendingPlans.length > 0 && <button onClick={() => setTab("subscriptions")}><Repeat size={15} /> {pendingPlans.length} plan{pendingPlans.length > 1 ? "s" : ""} to confirm</button>}
+                  {newEvents.length + soonEvents.length === 0 && <p>All caught up.</p>}
+                  {newEvents.length > 0 && <button onClick={() => setTab("events")}><PartyPopper size={15} /> {newEvents.length} event request{newEvents.length > 1 ? "s" : ""} to confirm</button>}
+                  {soonEvents.length > 0 && <button onClick={() => setTab("events")}><CalendarClock size={15} /> {soonEvents.length} event{soonEvents.length > 1 ? "s" : ""} in the next 2 days</button>}
                 </div>
               )}
             </div>
@@ -171,8 +167,6 @@ export function Dashboard({ onOut }: { onOut: () => void }) {
               {tab === "delivery" && <AdminDelivery />}
               {tab === "audit" && <AdminAudit />}
               {tab === "events" && <AdminEvents />}
-              {tab === "orders" && <AdminOrders branchName={branchName} />}
-              {tab === "subscriptions" && <AdminSubscriptions branchName={branchName} />}
               {tab === "customers" && <AdminCustomers />}
               {tab === "branches" && <AdminBranches />}
               {tab === "promoters" && <AdminPromoters />}

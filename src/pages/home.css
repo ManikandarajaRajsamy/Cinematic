@@ -296,7 +296,7 @@ html[lang="ta"] .tk-item { font-style: normal; }
   text-shadow: 0 0 1px rgba(250, 247, 240, 0.9), 0 0 14px rgba(250, 247, 240, 0.95), 0 0 28px rgba(250, 247, 240, 0.7);
 }
 .home > section:not(.hero):not(.story) .eyebrow, main.veil .eyebrow { color: var(--green-deep); }
-:is(.btn, .card, .pc, .pb-plan, .pb-form, .pb-sum, .rvw-card, .bd-row, .gl-q, .tk, .hp, .pg-more-card, .badge, .modal-panel, .input, .select, .textarea, .qty, .tabs, .chip) {
+:is(.btn, .card, .pc, .pb-plan, .pb-form, .pb-sum, .rvw-card, .bx-card, .gl-q, .tk, .hp, .pg-more-card, .badge, .modal-panel, .input, .select, .textarea, .qty, .tabs, .chip) {
   text-shadow: none;
 }
 

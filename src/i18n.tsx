@@ -30,17 +30,16 @@ export function useLang() {
 export const NAV_PRIMARY = [
   { to: "/", en: "Home", ta: "முகப்பு" },
   { to: "/events", en: "Event Orders", ta: "விழா ஆர்டர்கள்" },
-  { to: "/subscriptions", en: "Subscriptions", ta: "சந்தா" },
-  { to: "/products", en: "Home Delivery", ta: "வீட்டு டெலிவரி" },
+  { to: "/products", en: "Our Paruthipaal", ta: "எங்கள் பருத்திப்பால்" },
+  { to: "/branches", en: "Branches", ta: "கிளைகள்" },
 ];
 
 /** Shared labels, so the header, footer and homepage name things the same way. */
 export const NAV_ITEMS = [
   { to: "/", en: "Home", ta: "முகப்பு" },
   { to: "/our-story", en: "Our Story", ta: "எங்கள் கதை" },
-  { to: "/products", en: "Products", ta: "பொருட்கள்" },
-  { to: "/subscriptions", en: "Subscriptions", ta: "சந்தா" },
   { to: "/events", en: "Event Orders", ta: "விழா ஆர்டர்கள்" },
+  { to: "/products", en: "Products", ta: "பொருட்கள்" },
   { to: "/branches", en: "Branches", ta: "கிளைகள்" },
   { to: "/contact", en: "Contact", ta: "தொடர்பு" },
 ];

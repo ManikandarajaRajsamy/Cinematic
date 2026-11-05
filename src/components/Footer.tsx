@@ -6,9 +6,8 @@ import { GOOGLE_REVIEWS_URL, SHOP } from "@/data/home";
 import { NAV_ITEMS, useLang } from "@/i18n";
 
 const SERVICES = [
-  { to: "/products", en: "Home delivery", ta: "வீட்டு டெலிவரி" },
-  { to: "/events", en: "Event orders", ta: "விழா ஆர்டர்கள்" },
-  { to: "/subscriptions", en: "Daily subscription", ta: "தினசரி சந்தா" },
+  { to: "/events", en: "Book an event order", ta: "விழா ஆர்டர் செய்யுங்கள்" },
+  { to: "/events#terms", en: "Event order terms", ta: "விழா ஆர்டர் விதிமுறைகள்" },
   { to: "/tracking", en: "Track an order", ta: "ஆர்டர் நிலை" },
 ];
 

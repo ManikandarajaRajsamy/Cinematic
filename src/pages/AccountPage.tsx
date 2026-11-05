@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { User, MapPin, Package, Repeat, LogOut, Pencil, Plus, Trash2, Truck, ArrowRight, Settings, Mail, Phone } from "lucide-react";
+import { User, MapPin, Package, LogOut, Pencil, Plus, Trash2, Truck, ArrowRight, Settings, Mail, Phone } from "lucide-react";
 import { AccountSettings } from "@/components/AccountSettings";
 import { ORDER_STATUS_LABEL, statusBadge } from "@/data/orderStatus";
 import { useStore, type Address, type DemoOrder } from "@/store/store";
 import { Modal } from "@/components/Modal";
 import { AddressFields, emptyAddress, toAddressInput, validateAddress, type AddressInput } from "@/components/AddressFields";
 import { auth } from "@/api/auth";
-import { MyPlans } from "@/components/MyPlans";
 import { ApiError } from "@/api/client";
 
-type Tab = "profile" | "addresses" | "orders" | "subscriptions" | "settings";
+type Tab = "profile" | "addresses" | "orders" | "settings";
 
 export function AccountPage() {
   const { state, signOut, signedIn, updateAddress: updateAddr, addAddress, removeAddress, toast } = useStore();
@@ -29,7 +28,7 @@ export function AccountPage() {
       setClaim((c) => ({ ...c, busy: false, error: x instanceof ApiError ? (x.fields?.password ?? x.message) : "Couldn't save the password." }));
     }
   };
-  const TAB_IDS: Tab[] = ["profile", "addresses", "orders", "subscriptions", "settings"];
+  const TAB_IDS: Tab[] = ["profile", "addresses", "orders", "settings"];
   const fromHash = TAB_IDS.find((t) => "#" + t === hash);
   const [tab, setTab] = useState<Tab>(fromHash ?? "profile");
   // footer links like /account#addresses switch the tab even when this page is already open
@@ -46,7 +45,6 @@ export function AccountPage() {
     { id: "profile", label: "Profile", icon: User },
     { id: "addresses", label: "Addresses", icon: MapPin },
     { id: "orders", label: "Orders", icon: Package },
-    { id: "subscriptions", label: "Subscriptions", icon: Repeat },
     { id: "settings", label: "Account settings", icon: Settings },
   ];
 
@@ -197,7 +195,7 @@ export function AccountPage() {
                   </div>
                 )}
                 {state.orders.length === 0 ? (
-                  <div className="empty-mini"><Package size={32} /><p>No demo orders yet.</p><Link to="/products" className="btn btn-primary btn-sm">Browse menu</Link></div>
+                  <div className="empty-mini"><Package size={32} /><p>No orders yet.</p><Link to="/events" className="btn btn-primary btn-sm">Plan an event order</Link></div>
                 ) : (
                   <div className="acc-orders">
                     {state.orders.map((o) => (
@@ -224,14 +222,6 @@ export function AccountPage() {
                     ))}
                   </div>
                 )}
-              </div>
-            )}
-
-            {tab === "subscriptions" && (
-              <div className="acc-pane">
-                <h1 className="title-xl mb-8">Subscriptions</h1>
-                <MyPlans title="" emptyText="No daily plans yet." />
-                <Link to="/subscriptions" className="btn btn-ghost btn-sm mt-6">Explore plans <ArrowRight size={12} /></Link>
               </div>
             )}
 

@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { lazy, Suspense, useEffect } from "react";
-import { StaffGuard, PartnerGuard, GuestOnly, RequireCart, RequireJustOrdered } from "@/routes/guards";
+import { StaffGuard, PartnerGuard, GuestOnly } from "@/routes/guards";
 import { StoreProvider } from "@/store/store";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
@@ -22,13 +22,8 @@ const ContactPage = lazy(() => import("@/pages/ContactPage").then((m) => ({ defa
 const PoliciesPage = lazy(() => import("@/pages/PoliciesPage").then((m) => ({ default: m.PoliciesPage })));
 const BranchesPage = lazy(() => import("@/pages/BranchesPage").then((m) => ({ default: m.BranchesPage })));
 const EventsPage = lazy(() => import("@/pages/EventsPage").then((m) => ({ default: m.EventsPage })));
-const SubscriptionsPage = lazy(() => import("@/pages/SubscriptionsPage").then((m) => ({ default: m.SubscriptionsPage })));
 const AccountPage = lazy(() => import("@/pages/AccountPage").then((m) => ({ default: m.AccountPage })));
 const TrackingPage = lazy(() => import("@/pages/TrackingPage").then((m) => ({ default: m.TrackingPage })));
-const ConfirmationPage = lazy(() => import("@/pages/ConfirmationPage").then((m) => ({ default: m.ConfirmationPage })));
-const CheckoutPage = lazy(() => import("@/pages/CheckoutPage").then((m) => ({ default: m.CheckoutPage })));
-const CartPage = lazy(() => import("@/pages/CartPage").then((m) => ({ default: m.CartPage })));
-const ProductDetailPage = lazy(() => import("@/pages/ProductDetailPage").then((m) => ({ default: m.ProductDetailPage })));
 const ProductsPage = lazy(() => import("@/pages/ProductsPage").then((m) => ({ default: m.ProductsPage })));
 const OurStoryPage = lazy(() => import("@/pages/OurStoryPage").then((m) => ({ default: m.OurStoryPage })));
 
@@ -51,7 +46,7 @@ function ScrollToTop() {
 const PAGE_MOTION: MotionConfig = {
   reveal: [
     [".po-media, .os-portrait", "rv-media"],
-    [".card, .pc, .pb-plan, .pb-form, .pb-sum, .bd-row, .pg-more-card, .mp-card, .ohl li, .ev-option", "rv-card"],
+    [".card, .pc, .pb-plan, .pb-form, .pb-sum, .bx-card, .pg-more-card, .mp-card, .ohl li, .ev-option", "rv-card"],
     [".eyebrow, main h1, main h2.display-2, main h2.display-3, main h2.title-xl, main h2.title-lg, .lead, .pg-crumb, .pg-bar, .sec-head > p, .po-body > :not(h2), .os-text > p", "rv-text"],
   ],
   parallax: [[".po-media img", -0.05, 0.05], [".os-portrait", -0.05]],
@@ -98,15 +93,13 @@ function Layout() {
           <Route path="/" element={<HomePage />} />
           <Route path="/our-story" element={<OurStoryPage />} />
           <Route path="/products" element={<ProductsPage />} />
-          <Route path="/product/:id" element={<ProductDetailPage />} />
-          <Route path="/cart" element={<CartPage />} />
-          <Route path="/checkout" element={<RequireCart><CheckoutPage /></RequireCart>} />
-          <Route path="/confirmation" element={<RequireJustOrdered><ConfirmationPage /></RequireJustOrdered>} />
+          <Route path="/product/:id" element={<Navigate to="/products" replace />} />
+          {/* the shop takes event orders only: old cart, checkout and subscription links go to the event booking form */}
+          {["/cart", "/checkout", "/confirmation", "/subscriptions"].map((p) => <Route key={p} path={p} element={<Navigate to="/events" replace />} />)}
           <Route path="/tracking" element={<TrackingPage />} />
           <Route path="/tracking/:id" element={<TrackingPage />} />
           <Route path="/t/:token" element={<TrackingPage />} />
           <Route path="/account" element={<AccountPage />} />
-          <Route path="/subscriptions" element={<SubscriptionsPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route path="/branches" element={<BranchesPage />} />
           <Route path="/policies" element={<PoliciesPage />} />
